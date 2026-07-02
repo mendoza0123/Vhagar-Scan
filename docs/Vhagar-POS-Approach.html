@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Vhagar POS — Approach & Plan (Neon)</title>
+<style>
+  :root{
+    --ink:#1a1a2e; --muted:#5b6172; --line:#e3e6ee;
+    --brand:#0e4d92; --brand2:#137a63; --accent:#c8472b;
+    --soft:#f5f7fb; --gold:#b8860b; --neon:#00e599;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+  body{font-family:"Segoe UI",Calibri,Arial,sans-serif; color:var(--ink); margin:0; font-size:13px; line-height:1.5}
+  .page{padding:42px 54px; max-width:900px; margin:0 auto}
+  .page-break{page-break-before:always}
+  h1{font-size:30px; margin:0 0 4px; letter-spacing:-.5px}
+  h2{font-size:19px; margin:30px 0 10px; color:var(--brand); border-bottom:2px solid var(--line); padding-bottom:6px}
+  h3{font-size:14px; margin:18px 0 6px; color:var(--ink)}
+  p{margin:8px 0}
+  .sub{color:var(--muted); font-size:13px}
+  .tag{display:inline-block; background:var(--brand); color:#fff; font-size:11px; font-weight:600; padding:3px 10px; border-radius:20px; letter-spacing:.4px}
+  .cover{background:linear-gradient(135deg,#0e4d92 0%,#137a63 100%); color:#fff; padding:70px 54px 56px}
+  .cover h1{font-size:40px; color:#fff}
+  .cover .sub{color:#dbe7f5}
+  .cover .meta{margin-top:28px; font-size:12px; color:#cfe0f2}
+  .cover .meta b{color:#fff}
+  .pill-row{margin-top:22px; display:flex; gap:10px; flex-wrap:wrap}
+  .pill{background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.3); padding:6px 12px; border-radius:8px; font-size:12px}
+  table{width:100%; border-collapse:collapse; margin:12px 0; font-size:12px}
+  th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top}
+  th{background:var(--soft); font-weight:600; color:var(--brand)}
+  .rec{background:#eef7f1; border-left:4px solid var(--brand2)}
+  .win{color:var(--brand2); font-weight:700}
+  .warn{color:var(--accent); font-weight:600}
+  .callout{background:var(--soft); border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:6px; padding:14px 18px; margin:14px 0}
+  .callout.rec{border-left-color:var(--brand2); background:#eef7f1}
+  ul{margin:8px 0; padding-left:20px}
+  li{margin:4px 0}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px}
+  .card{border:1px solid var(--line); border-radius:8px; padding:14px 16px; background:#fff}
+  .card h3{margin-top:0}
+  .num{font-size:26px; font-weight:700; color:var(--brand)}
+  .timeline{margin:10px 0}
+  .trow{display:grid; grid-template-columns:120px 1fr; gap:0; border-left:3px solid var(--line)}
+  .tday{font-weight:700; color:var(--brand); padding:10px 14px}
+  .tbody{padding:10px 6px}
+  .bar{height:14px; border-radius:7px; background:linear-gradient(90deg,var(--brand),var(--brand2)); margin:6px 0}
+  .done{font-size:10px; font-weight:700; color:#fff; background:var(--brand2); padding:2px 7px; border-radius:10px; margin-left:6px; vertical-align:middle}
+  .footer{margin-top:34px; padding-top:14px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; display:flex; justify-content:space-between}
+  .kpi{display:flex; gap:18px; margin:14px 0}
+  .kpi .card{flex:1; text-align:center}
+  .small{font-size:11px; color:var(--muted)}
+  code{background:#eef1f7; padding:1px 5px; border-radius:4px; font-family:Consolas,monospace; font-size:11.5px}
+  .check{color:var(--brand2); font-weight:700}
+  .cross{color:var(--accent); font-weight:700}
+  .neonchip{display:inline-block; background:#03261d; color:var(--neon); font-weight:700; padding:2px 9px; border-radius:6px; font-size:11px; letter-spacing:.3px}
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="cover">
+  <span class="tag">DECISION BRIEF · v2 · NEON</span>
+  <h1>Vhagar POS</h1>
+  <div class="sub" style="font-size:18px">Scan-to-Bill Stock &amp; Billing System for Bharat Tex 2026</div>
+  <div class="pill-row">
+    <div class="pill">📱 Phone/Tablet QR Scanning</div>
+    <div class="pill">🧾 Live Cash Billing</div>
+    <div class="pill">📦 Real-time Inventory</div>
+    <div class="pill">⚡ Next.js + Neon on Vercel</div>
+  </div>
+  <div class="meta">
+    Prepared for <b>LD Group · Vhagar Clothing</b> &nbsp;|&nbsp; Date <b>26 June 2026</b> &nbsp;|&nbsp; Go-live <b>02 July 2026</b> &nbsp;|&nbsp; Runway <b>6 days</b>
+  </div>
+</div>
+
+<div class="page">
+
+  <h2>1. The Goal in One Line</h2>
+  <p>At the Vhagar booth in <b>Bharat Tex 2026</b>, a staff member scans a garment's QR tag with a phone/tablet → it drops into a cart → the price is confirmed (editable for bargaining) → a <b>cash bill</b> is generated and <b>stock decrements live</b>. No spreadsheets, no manual stock counts, no double-selling the last piece.</p>
+
+  <div class="kpi">
+    <div class="card"><div class="num">103</div><div class="small">Styles</div></div>
+    <div class="card"><div class="num">318</div><div class="small">Variants (style×size)</div></div>
+    <div class="card"><div class="num">677</div><div class="small">Physical pieces = QR labels</div></div>
+    <div class="card"><div class="num">6</div><div class="small">Days to go-live</div></div>
+  </div>
+  <p class="small">Data foundation is <b>built, merged and loaded</b> (per-size stock + price/name/colour). Only <b>4 styles still need a confirmed price</b> — otherwise the listed default applies.</p>
+
+  <h2>2. The Stack — Decided <span class="neonchip">NEON</span></h2>
+  <p>A <b>custom web app</b> on the team's own stack, so it fits the existing toolchain and stays free to run:</p>
+  <div class="grid3">
+    <div class="card"><h3>Frontend</h3><b>Next.js 14 PWA</b><br><span class="small">Installs to the home screen, built-in camera QR scanner, big booth-friendly buttons.</span></div>
+    <div class="card"><h3>Hosting</h3><b>Vercel</b><br><span class="small">One-push deploy, automatic HTTPS (required for the camera), native Neon integration.</span></div>
+    <div class="card"><h3>Database</h3><b>Neon Postgres</b><br><span class="small">Serverless Postgres, scales to zero, instant provisioning, connected to Claude via MCP for the build.</span></div>
+  </div>
+
+  <div class="callout rec">
+    <b>Why Neon (and not Supabase).</b> The plan originally pointed at Supabase, but its free plan caps at <b>2 active projects</b> and both slots were already taken (the SCOT dashboards). Rather than pay or pause an existing app, we moved the database to <b>Neon</b> — serverless Postgres on a genuinely free tier, provisioned in seconds, with a Vercel-native integration and a Claude MCP connection that lets the build run schema + seed directly. Net result: <b>$0, fully isolated, zero friction.</b>
+  </div>
+
+  <table>
+    <tr><th style="width:26%">Locked decision</th><th>Detail</th></tr>
+    <tr><td>Bill type</td><td><b>Simple cash bill, no GST.</b> Subtotal − discount = total.</td></tr>
+    <tr><td>Scanning</td><td><b>QR codes</b> (cameras read QR off fabric tags far better than 1D barcodes). The QR encodes the <code>variant_sku</code> (e.g. <code>VH-EP10-L</code>).</td></tr>
+    <tr><td>Pricing</td><td><b>Manual price per sale</b> — the listed price pre-fills as an editable default (handles bargaining).</td></tr>
+    <tr><td>Connectivity</td><td><b>Cloud over a dedicated 4G hotspot</b>, not venue wifi.</td></tr>
+    <tr><td>No-oversell guard</td><td>Database <b>physically cannot go negative</b>; checkout is one atomic transaction that rolls back rather than sell stock you don't have.</td></tr>
+  </table>
+
+</div>
+
+<!-- PAGE 2 -->
+<div class="page page-break">
+
+  <h2>3. How It Works — Architecture</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>The flow (per sale)</h3>
+      <ul>
+        <li><b>Scan</b> — phone camera reads the garment's QR (encodes <code>STYLE-SIZE</code>, e.g. <code>VH-EP10-L</code>).</li>
+        <li><b>Cart</b> — variant drops in; price pre-fills as an <i>editable</i> default for bargaining.</li>
+        <li><b>Bill</b> — confirm → simple cash bill (no GST), shareable/printable.</li>
+        <li><b>Stock</b> — that variant decrements by 1, instantly, for everyone.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>The stack at runtime</h3>
+      <ul>
+        <li><b>Next.js PWA on Vercel</b> serves the app over HTTPS.</li>
+        <li><b>Neon Postgres</b> holds catalog, stock, sales — accessed only server-side.</li>
+        <li><b>Live stock</b> stays fresh by lightweight polling (Neon has no realtime service; for a few booth devices, polling is simpler and rock-solid).</li>
+        <li><b>4G hotspot</b> for connectivity; the app tolerates flaky signal.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Tagging — QR stickers on every piece</h3>
+  <p>Each of the <b>677 physical pieces</b> gets a printed QR sticker encoding its <code>variant_sku</code>, with the style name, size, colour and price in human-readable text underneath (so a sale still works if a scan fails). Pieces of the same style+size carry an identical QR — scanning simply sells one of that size. Stickers go on the <b>hang tag / polybag / care-label</b> (not bare fabric) and are printed in-house on the <b>Kores Endura label printer</b>.</p>
+
+  <h3>Screens to build</h3>
+  <table>
+    <tr><th style="width:24%">Screen</th><th>Purpose</th></tr>
+    <tr><td><b>Scan &amp; Sell</b></td><td>Live camera scan → cart → price edit → checkout. The booth's main screen.</td></tr>
+    <tr><td><b>Bill</b></td><td>Generate cash bill, share/print, finalize sale &amp; decrement stock.</td></tr>
+    <tr><td><b>Stock</b></td><td>Live inventory by style/size; low-stock highlight.</td></tr>
+    <tr><td><b>Sales Log</b></td><td>Running list of the day's sales &amp; total; CSV export (our backup habit).</td></tr>
+    <tr><td><b>Admin + QR Generator</b></td><td>Set the 4 missing prices; generate &amp; print all 677 QR labels.</td></tr>
+  </table>
+
+  <h2>4. Timeline — 6 Days to Go-Live</h2>
+  <div class="timeline">
+    <div class="trow"><div class="tday">Thu 26 Jun<br><span class="small">Day 0 — today</span></div><div class="tbody"><b>Foundation &amp; database.</b><span class="done">DONE</span> Neon chosen, schema + atomic checkout built, catalog seeded (103/318/677), Next.js project scaffolded.<div class="bar" style="width:100%"></div></div></div>
+    <div class="trow"><div class="tday">Fri 27 Jun<br><span class="small">Day 1</span></div><div class="tbody"><b>Core app.</b> Wire Neon URL, deploy skeleton to Vercel, build Scan &amp; Sell + cart with live camera scanning.<div class="bar" style="width:80%"></div></div></div>
+    <div class="trow"><div class="tday">Sat 28 Jun<br><span class="small">Day 2</span></div><div class="tbody"><b>Billing engine.</b> Cash bill generation, atomic stock decrement, sales log, polled stock sync across devices.<div class="bar" style="width:80%"></div></div></div>
+    <div class="trow"><div class="tday">Sun 29 Jun<br><span class="small">Day 3</span></div><div class="tbody"><b>Labels + admin.</b> QR label generator → print all 677 on the Kores printer. Set 4 missing prices. Returns/void handling.<div class="bar" style="width:70%"></div></div></div>
+    <div class="trow"><div class="tday">Mon 30 Jun<br><span class="small">Day 4</span></div><div class="tbody"><b>Hardening.</b> Offline/poor-signal resilience, 4G hotspot test, multi-device test, edge cases &amp; polish.<div class="bar" style="width:60%"></div></div></div>
+    <div class="trow"><div class="tday">Tue 1 Jul<br><span class="small">Day 5</span></div><div class="tbody"><b>Dress rehearsal.</b> Full dry run at booth setup: stick labels, train staff, simulate a busy hour, fix what breaks.<div class="bar" style="width:50%"></div></div></div>
+    <div class="trow"><div class="tday">Wed 2 Jul<br><span class="small">Day 6 — GO-LIVE</span></div><div class="tbody"><b>Live at Bharat Tex.</b> Buffer for last-mile fixes; monitor first real sales.<div class="bar" style="width:35%; background:linear-gradient(90deg,#c8472b,#b8860b)"></div></div></div>
+  </div>
+  <p class="small"><b>Status:</b> the database layer is finished ahead of schedule. The working core (scan → bill → stock) is realistically <b>2–3 focused days</b>; the rest is hardening + rehearsal — exactly what de-risks a live event. Comfortable slack remains.</p>
+
+  <h2>5. Risks &amp; How We Cover Them</h2>
+  <table>
+    <tr><th style="width:34%">Risk</th><th>Mitigation</th></tr>
+    <tr><td>DB idle / cold start mid-event</td><td>Neon compute auto-suspends when idle and <b>auto-resumes on the next query</b> (a brief cold start, not a manual restore). A busy booth keeps it warm; a tiny keep-alive ping covers quiet spells.</td></tr>
+    <tr><td>Data loss / corruption</td><td>Neon keeps point-in-time history for restore within the plan's retention window. We also <b>export sales to CSV nightly</b> as a belt-and-suspenders backup.</td></tr>
+    <tr><td>Weak 4G signal at booth</td><td>Dedicated hotspot; PWA caches the app shell; the cart survives a failed request so staff can retry.</td></tr>
+    <tr><td>Two staff sell the last piece</td><td>Atomic server-side decrement with a non-negative stock constraint; the second sale cleanly rolls back.</td></tr>
+    <tr><td>Camera won't scan a tag</td><td>QR (not barcode) + human-readable SKU on the sticker + manual SKU/name search fallback.</td></tr>
+  </table>
+
+  <h2>6. Where We Are &amp; Next Steps</h2>
+  <ul>
+    <li><span class="check">Done:</span> Neon chosen · schema + atomic checkout · catalog seeded (103/318/677) · Next.js scaffold + kickoff prompt.</li>
+    <li><b>You:</b> paste the Neon <code>DATABASE_URL</code> into <code>.env.local</code>; send confirmed prices for the 4 styles (<code>VH-KN100</code>, <code>VH-PLV5197A</code>, <code>VH-X5C28A</code>, <code>VH-Y5A183B</code>).</li>
+    <li><b>Build:</b> run schema + seed → Scan &amp; Sell → Bill → Stock → Sales Log → Admin/QR labels → deploy to Vercel → booth dress rehearsal.</li>
+  </ul>
+
+  <div class="footer">
+    <span>Vhagar POS · Decision Brief v2 (Neon) · LD Group</span>
+    <span>Confidential · 26 Jun 2026</span>
+  </div>
+</div>
+
+</body>
+</html>

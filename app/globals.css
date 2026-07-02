@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  height: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+/* Big, thumb-friendly controls for a busy booth */
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-5 py-4 text-base font-semibold transition active:scale-[0.98];
+}
+.btn-primary { @apply bg-brand text-white hover:bg-brand-dark; }
+.btn-ghost { @apply bg-white text-slate-800 border border-slate-200 hover:bg-slate-50; }
+
+/* ---------- QR label sheet ----------
+   Structural only. All physical dimensions (@page size, label mm W×H, grid
+   columns/gap, page breaks, borders) are injected at runtime by the labels
+   page into <style id="label-print-css"> so they track the configured roll. */
+.label-grid { display: grid; }
+.qr-label {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #000;
+}
+.qr-label img { image-rendering: pixelated; image-rendering: crisp-edges; }
+
+@media print {
+  html, body { background: #fff !important; }
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; inset: 0; margin: 0; padding: 0; max-width: none; }
+  .no-print { display: none !important; }
+}

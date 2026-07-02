@@ -1,0 +1,3 @@
+{
+  "_comment": "Optional 3D models. Map a POS style_code to a public .glb/.gltf URL and clicking that product's photo on /stock opens an interactive 3D view (orbit + AR on mobile). Example: \"VH-CS336A\": \"https://your-cdn.com/models/canvas-336a.glb\". Keys must match Neon style_code (e.g. VH-EP10). Leave empty to show the large photo instead."
+}
