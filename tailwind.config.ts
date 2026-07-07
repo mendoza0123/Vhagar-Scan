@@ -8,8 +8,8 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        brand: { DEFAULT: "#0e4d92", dark: "#0a3a6e" },
-        accent: "#137a63",
+        brand: { DEFAULT: "#22322A", dark: "#1A2620" }, // Vhagar Nomad Green
+        accent: "#5E1A20", // Wild Garnet
       },
     },
   },

@@ -25,6 +25,9 @@ export async function POST(req: NextRequest) {
     body?.customer?.name?.toString().trim() || null;
   const customerPhone: string | null =
     body?.customer?.phone?.toString().trim() || null;
+  const address: string | null = body?.customer?.address?.toString().trim() || null;
+  const pmRaw = (body?.paymentMethod || "cash").toString().toLowerCase();
+  const paymentMethod = ["cash", "card", "upi", "other"].includes(pmRaw) ? pmRaw : "cash";
 
   // ---- validate the cart ----
   const items: IncomingItem[] = [];
@@ -66,17 +69,17 @@ export async function POST(req: NextRequest) {
         ${discount},
         ${customerName},
         ${customerPhone},
-        'cash',
+        ${paymentMethod},
         ${soldBy},
         ${note}
       ) AS id`;
     const id = Number(rows[0].id);
     const bill_no = billNo(id);
 
-    // Stamp a human-friendly bill number (best effort; the value is also
-    // derivable from the id, so a failure here never blocks the sale).
+    // Stamp a human-friendly bill number + address (delivery_method) — best
+    // effort; both are derivable/optional so a failure here never blocks the sale.
     try {
-      await sql`UPDATE sales SET bill_no = ${bill_no} WHERE id = ${id}`;
+      await sql`UPDATE sales SET bill_no = ${bill_no}, delivery_method = ${address} WHERE id = ${id}`;
     } catch {
       /* ignore — bill_no is derivable from id at read time */
     }

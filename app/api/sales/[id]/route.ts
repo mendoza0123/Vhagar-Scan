@@ -38,3 +38,34 @@ export async function GET(
     items,
   });
 }
+
+// PATCH /api/sales/123 — { action:'void' } restocks + voids; otherwise edits
+// the non-stock bill fields (name/phone/address/payment/note). Item/qty changes
+// are done by voiding and re-selling — safer than mutating stock in place.
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const id = Number(params.id);
+  if (!Number.isInteger(id) || id < 1) return NextResponse.json({ error: "bad_id" }, { status: 400 });
+  const body = await req.json().catch(() => ({}));
+
+  if (body?.action === "void") {
+    try {
+      const [{ void_sale: ok }] = await sql`SELECT void_sale(${id}) AS void_sale`;
+      return NextResponse.json({ ok, status: "void" });
+    } catch (e: any) {
+      return NextResponse.json({ error: "void_failed", message: e?.message || "Could not void" }, { status: 400 });
+    }
+  }
+
+  const name = body?.customer_name?.toString().trim() || null;
+  const phone = body?.customer_phone?.toString().trim() || null;
+  const address = body?.address?.toString().trim() || null;
+  const note = body?.note?.toString().trim() || null;
+  const pmRaw = (body?.payment_method || "").toString().toLowerCase();
+  const pm = ["cash", "card", "upi", "other"].includes(pmRaw) ? pmRaw : null;
+
+  await sql`UPDATE sales SET
+      customer_name = ${name}, customer_phone = ${phone}, delivery_method = ${address},
+      note = ${note}, payment_method = COALESCE(${pm}, payment_method)
+    WHERE id = ${id} AND status = 'completed'`;
+  return NextResponse.json({ ok: true });
+}

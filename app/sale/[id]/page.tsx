@@ -193,7 +193,17 @@ export default async function BillPage({ params }: { params: { id: string } }) {
       </article>
 
       <div className="mx-auto w-full max-w-[820px]">
-        <BillActions billNo={billNo} shareText={shareText} />
+        <BillActions
+          id={sale.id}
+          billNo={billNo}
+          status={sale.status}
+          shareText={shareText}
+          customerName={sale.customer_name}
+          customerPhone={sale.customer_phone}
+          address={sale.delivery_method}
+          paymentMethod={sale.payment_method}
+          note={sale.note}
+        />
       </div>
     </main>
   );

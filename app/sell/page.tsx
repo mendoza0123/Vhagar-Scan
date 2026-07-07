@@ -89,6 +89,11 @@ export default function SellPage() {
   const [cart, setCart] = useState<Line[]>([]);
   const [discount, setDiscount] = useState<string>("0");
   const [soldBy, setSoldBy] = useState<string>("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [payment, setPayment] = useState<"cash" | "card" | "upi" | "other">("cash");
+  const [preview, setPreview] = useState(false);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Variant[]>([]);
@@ -269,6 +274,7 @@ export default function SellPage() {
   // ---- checkout: re-check stock, then process_sale ----
   const checkout = async () => {
     if (cart.length === 0) return;
+    setPreview(false);
     setError(null);
     setStatus("checking");
 
@@ -300,6 +306,8 @@ export default function SellPage() {
       items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price) })),
       discount: discountNum,
       soldBy: soldBy.trim() || null,
+      paymentMethod: payment,
+      customer: { name: name.trim() || null, phone: phone.trim() || null, address: address.trim() || null },
     };
 
     try {
@@ -341,6 +349,10 @@ export default function SellPage() {
       });
       feedback(true);
       clearCart();
+      setName("");
+      setPhone("");
+      setAddress("");
+      setPayment("cash");
       setStatus("idle");
     } catch {
       // network failure — DO NOT lose the cart; let them retry
@@ -518,14 +530,31 @@ export default function SellPage() {
         )}
       </section>
 
-      {/* ---- optional: sold by ---- */}
+      {/* ---- customer + payment (captured at the booth) ---- */}
       {cart.length > 0 && (
-        <input
-          value={soldBy}
-          onChange={(e) => setSoldBy(e.target.value)}
-          placeholder="Sold by (optional)"
-          className="rounded-xl border border-slate-200 px-4 py-2 text-sm outline-none focus:border-brand"
-        />
+        <section className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no." className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
+          <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (optional)" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
+          <div className="grid grid-cols-4 gap-2 pt-1">
+            {(["cash", "card", "upi", "other"] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPayment(p)}
+                className={`rounded-xl border px-2 py-2 text-sm font-medium ${payment === p ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+              >
+                {{ cash: "Cash", card: "Card", upi: "UPI", other: "Other" }[p]}
+              </button>
+            ))}
+          </div>
+          <input
+            value={soldBy}
+            onChange={(e) => setSoldBy(e.target.value)}
+            placeholder="Sold by (optional)"
+            className="mt-1 rounded-xl border border-slate-200 px-4 py-2 text-sm outline-none focus:border-brand"
+          />
+        </section>
       )}
 
       {/* ---- error banner ---- */}
@@ -572,7 +601,7 @@ export default function SellPage() {
             <span>{money(total)}</span>
           </div>
           <button
-            onClick={checkout}
+            onClick={() => setPreview(true)}
             disabled={!canCheckout}
             className="btn btn-primary w-full py-4 text-lg disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -582,8 +611,52 @@ export default function SellPage() {
               ? "Checking stock…"
               : blockingLines.length > 0
               ? `Fix ${blockingLines.length} item${blockingLines.length > 1 ? "s" : ""}`
-              : `Charge ${money(total)} · Cash`}
+              : `Review & charge ${money(total)}`}
           </button>
+        </div>
+      )}
+
+      {/* ---- charge preview (confirm details before the sale) ---- */}
+      {preview && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          onClick={() => setPreview(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-auto rounded-t-3xl bg-white p-5 sm:rounded-3xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-bold text-brand">Confirm sale</h2>
+            <div className="mt-3 divide-y divide-slate-100 border-y border-slate-100">
+              {cart.map((l) => (
+                <div key={l.sku} className="flex items-center justify-between py-2 text-sm">
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{l.name} · {l.size}</span>
+                    <span className="text-xs text-slate-400">{l.qty} × {money(Number(l.price) || 0)}</span>
+                  </span>
+                  <span className="font-semibold">{money((Number(l.price) || 0) * l.qty)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 space-y-1 text-sm">
+              <Row label="Subtotal" value={money(subtotal)} />
+              {discountNum > 0 && <Row label="Discount" value={`− ${money(discountNum)}`} />}
+              <div className="flex justify-between pt-1 text-lg font-bold">
+                <span>Total</span>
+                <span>{money(total)}</span>
+              </div>
+            </div>
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+              <p><b>Payment:</b> {{ cash: "Cash", card: "Card", upi: "UPI", other: "Other" }[payment]}</p>
+              {name && <p><b>Name:</b> {name}</p>}
+              {phone && <p><b>Mobile:</b> {phone}</p>}
+              {address && <p><b>Address:</b> {address}</p>}
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button onClick={() => setPreview(false)} className="btn btn-ghost">← Back</button>
+              <button onClick={checkout} className="btn btn-primary">✓ Confirm &amp; charge</button>
+            </div>
+          </div>
         </div>
       )}
 
