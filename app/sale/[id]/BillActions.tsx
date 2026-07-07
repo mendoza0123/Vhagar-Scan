@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 type Props = {
   id: number;
   billNo: string;
+  product: string;
   status: string;
   shareText: string;
   customerName: string | null;
@@ -30,17 +31,54 @@ export default function BillActions(p: Props) {
     note: p.note || "",
   });
 
-  const url = typeof window !== "undefined" ? window.location.href : "";
-  const fullText = `${p.shareText}\n${url}`;
-  const waDigits = (p.customerPhone || "").replace(/\D/g, "");
-  const wa = `https://wa.me/${waDigits.length === 10 ? "91" + waDigits : waDigits}?text=${encodeURIComponent(fullText)}`;
-  const mail = `mailto:?subject=${encodeURIComponent("Vhagar bill " + p.billNo)}&body=${encodeURIComponent(fullText)}`;
+  // Filename: brand-product-bill.pdf, e.g. Vhagar-TEST-FABRIC-VH-2026-0010.pdf
+  const filename = `Vhagar-${(p.product || "bill").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${p.billNo}.pdf`;
 
-  const nativeShare = async () => {
+  // Snapshot the on-page bill (#bill-doc) to an A4 PDF blob. Forced to 820px wide
+  // so the phone's narrow viewport doesn't cramp the document.
+  async function makeBlob(): Promise<Blob> {
+    const el = document.getElementById("bill-doc");
+    if (!el) throw new Error("bill-doc not found");
+    const html2pdf = (await import("html2pdf.js")).default;
+    return await html2pdf()
+      .set({
+        margin: 6,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, width: 820, windowWidth: 820 },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      })
+      .from(el)
+      .outputPdf("blob");
+  }
+  function download(blob: Blob) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  const sharePdf = async () => {
+    setBusy("pdf");
     try {
-      if (navigator.share) await navigator.share({ title: p.billNo, text: fullText });
-      else { await navigator.clipboard.writeText(fullText); alert("Bill copied to clipboard"); }
-    } catch { /* cancelled */ }
+      const blob = await makeBlob();
+      const file = new File([blob], filename, { type: "application/pdf" });
+      const nav = navigator as any;
+      if (nav.canShare?.({ files: [file] })) {
+        await nav.share({ files: [file], title: filename, text: `Vhagar bill ${p.billNo}` });
+      } else {
+        download(blob); // desktop / share-unsupported → save the file
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") alert("Could not create the PDF — use Print → Save as PDF.");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const downloadPdf = async () => {
+    setBusy("pdf");
+    try { download(await makeBlob()); }
+    catch { alert("Could not create the PDF."); }
+    finally { setBusy(null); }
   };
 
   const voidSale = async () => {
@@ -73,10 +111,11 @@ export default function BillActions(p: Props) {
         </p>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <button onClick={() => window.print()} className="btn btn-primary">🖨 Print</button>
-        <button onClick={nativeShare} className="btn btn-ghost">Share</button>
-        <a href={wa} target="_blank" rel="noreferrer" className="btn btn-ghost">WhatsApp</a>
-        <a href={mail} className="btn btn-ghost">Email</a>
+        <button onClick={sharePdf} disabled={busy === "pdf"} className="btn btn-primary">
+          {busy === "pdf" ? "Preparing…" : "📤 Share PDF"}
+        </button>
+        <button onClick={downloadPdf} disabled={busy === "pdf"} className="btn btn-ghost">⬇ Download PDF</button>
+        <button onClick={() => window.print()} className="btn btn-ghost col-span-2">🖨 Print</button>
         {p.status === "completed" && (
           <>
             <button onClick={() => setEditing(true)} className="btn btn-ghost">✎ Edit</button>

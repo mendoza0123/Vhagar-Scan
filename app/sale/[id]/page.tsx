@@ -74,17 +74,17 @@ export default async function BillPage({ params }: { params: { id: string } }) {
       </header>
 
       {/* ---------- THE BILL ---------- */}
-      <article className="mx-auto w-full max-w-[820px] bg-white text-black shadow-sm print:max-w-none print:shadow-none">
+      <article id="bill-doc" className="mx-auto w-full max-w-[820px] bg-white text-[13px] text-black shadow-sm sm:text-[15px] print:max-w-none print:shadow-none">
         <div className="border-[3px] border-black p-2.5">
           <div className="border border-black">
             {/* header / logo */}
-            <div className="flex items-center justify-center border-b border-black py-6">
+            <div className="flex items-center justify-center border-b border-black py-4 sm:py-6">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/lockup-black.png" alt="VHAGAR" className="h-24 w-auto" />
+              <img src="/brand/lockup-black.png" alt="VHAGAR" className="h-16 w-auto sm:h-24" />
             </div>
 
             {/* order / customer fields */}
-            <div className="text-[15px]">
+            <div className="text-[13px] sm:text-[15px]">
               <Row2
                 left={<Field label="Order No." value={billNo} />}
                 right={<Field label="Date" value={billDateTime(sale.created_at)} />}
@@ -109,7 +109,8 @@ export default async function BillPage({ params }: { params: { id: string } }) {
           </div>
 
           {/* items table */}
-          <table className="mt-2.5 w-full border-collapse text-[15px]">
+          <div className="mt-2.5 overflow-x-auto">
+          <table className="w-full border-collapse text-[13px] sm:text-[15px]">
             <thead>
               <tr className="bg-black text-left text-sm uppercase tracking-wide text-white">
                 <th className="w-16 border border-black px-3 py-2.5 font-semibold">Qty</th>
@@ -156,6 +157,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               </tr>
             </tfoot>
           </table>
+          </div>
 
           {sale.status !== "completed" && (
             <p className="mt-2 text-center text-sm font-semibold uppercase tracking-wide text-rose-600">
@@ -196,6 +198,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
         <BillActions
           id={sale.id}
           billNo={billNo}
+          product={sale.items[0]?.name ?? "bill"}
           status={sale.status}
           shareText={shareText}
           customerName={sale.customer_name}
@@ -212,7 +215,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
 /* ---------- field helpers ---------- */
 function LabelCell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="w-36 shrink-0 border-r border-black px-4 py-3 text-xs font-semibold uppercase tracking-wide">
+    <div className="w-24 shrink-0 border-r border-black px-3 py-3 text-xs font-semibold uppercase tracking-wide sm:w-36 sm:px-4">
       {children}
     </div>
   );
