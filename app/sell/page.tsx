@@ -93,7 +93,10 @@ export default function SellPage() {
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [payment, setPayment] = useState<"cash" | "card" | "upi" | "other">("cash");
+  const [channel, setChannel] = useState("Exhibition");
+  const [channelOther, setChannelOther] = useState("");
   const [preview, setPreview] = useState(false);
+  const saleChannel = channel === "Other" ? channelOther.trim() || "Other" : channel;
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Variant[]>([]);
@@ -307,6 +310,7 @@ export default function SellPage() {
       discount: discountNum,
       soldBy: soldBy.trim() || null,
       paymentMethod: payment,
+      channel: saleChannel,
       customer: { name: name.trim() || null, phone: phone.trim() || null, address: address.trim() || null },
     };
 
@@ -353,6 +357,8 @@ export default function SellPage() {
       setPhone("");
       setAddress("");
       setPayment("cash");
+      setChannel("Exhibition");
+      setChannelOther("");
       setStatus("idle");
     } catch {
       // network failure — DO NOT lose the cart; let them retry
@@ -533,7 +539,23 @@ export default function SellPage() {
       {/* ---- customer + payment (captured at the booth) ---- */}
       {cart.length > 0 && (
         <section className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Point of sale</p>
+          <div className="grid grid-cols-4 gap-2">
+            {["Exhibition", "Shopify", "Flipkart", "Other"].map((c) => (
+              <button
+                key={c}
+                onClick={() => setChannel(c)}
+                className={`rounded-xl border px-2 py-2 text-sm font-medium ${channel === c ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          {channel === "Other" && (
+            <input value={channelOther} onChange={(e) => setChannelOther(e.target.value)} placeholder="Type channel" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
+          )}
+
+          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no." className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (optional)" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
@@ -647,6 +669,7 @@ export default function SellPage() {
               </div>
             </div>
             <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+              <p><b>Point of sale:</b> {saleChannel}</p>
               <p><b>Payment:</b> {{ cash: "Cash", card: "Card", upi: "UPI", other: "Other" }[payment]}</p>
               {name && <p><b>Name:</b> {name}</p>}
               {phone && <p><b>Mobile:</b> {phone}</p>}

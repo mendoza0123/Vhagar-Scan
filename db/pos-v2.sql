@@ -18,6 +18,10 @@ BEGIN
   RETURN TRUE;
 END $$;
 
+-- Point-of-sale channel (Exhibition / Shopify / Flipkart / free text) — captured
+-- for analytics, NOT shown on the bill.
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS channel TEXT;
+
 -- Test SKU (₹1) so staff can print a QR and run a full scan→bill→void cycle.
 INSERT INTO products (style_code, name, color, category, fabric, base_price, channels)
 VALUES ('VH-TEST', 'TEST FABRIC', 'Slate', 'Test', 'Cotton', 1, 'TEST')

@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
   const customerPhone: string | null =
     body?.customer?.phone?.toString().trim() || null;
   const address: string | null = body?.customer?.address?.toString().trim() || null;
+  const channel: string | null = body?.channel?.toString().trim() || null;
   const pmRaw = (body?.paymentMethod || "cash").toString().toLowerCase();
   const paymentMethod = ["cash", "card", "upi", "other"].includes(pmRaw) ? pmRaw : "cash";
 
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
     // Stamp a human-friendly bill number + address (delivery_method) — best
     // effort; both are derivable/optional so a failure here never blocks the sale.
     try {
-      await sql`UPDATE sales SET bill_no = ${bill_no}, delivery_method = ${address} WHERE id = ${id}`;
+      await sql`UPDATE sales SET bill_no = ${bill_no}, delivery_method = ${address}, channel = ${channel} WHERE id = ${id}`;
     } catch {
       /* ignore — bill_no is derivable from id at read time */
     }
