@@ -151,6 +151,7 @@ export default function LabelsPage() {
     const q = manualQuery.trim().toLowerCase();
     return q ? styles.filter((s) => `${s.name} ${s.code}`.toLowerCase().includes(q)) : styles;
   }, [manualQuery, styles]);
+  const allShownSelected = manualFiltered.length > 0 && manualFiltered.every((s) => manual.has(s.code));
 
   const uniqueSkus = useMemo(
     () => Array.from(new Set(stickers.map((s) => s.row.variant_sku))),
@@ -438,12 +439,23 @@ export default function LabelsPage() {
             placeholder="Search styles to tick (e.g. Epson, Sparrow)…"
             className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand"
           />
-          <div className="mt-2 flex items-center justify-between text-xs">
-            <button onClick={() => setManual(new Set(manualFiltered.map((s) => s.code)))} className="font-medium text-brand">
-              Select all shown
-            </button>
-            <span className="text-slate-400">{manualFiltered.length} shown</span>
-          </div>
+          <button
+            onClick={() =>
+              setManual((prev) => {
+                const n = new Set(prev);
+                if (allShownSelected) manualFiltered.forEach((s) => n.delete(s.code));
+                else manualFiltered.forEach((s) => n.add(s.code));
+                return n;
+              })
+            }
+            className="mt-2 flex w-full items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-left text-sm font-medium hover:bg-slate-50"
+          >
+            <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${allShownSelected ? "border-brand bg-brand text-white" : "border-slate-300"}`}>
+              {allShownSelected ? "✓" : ""}
+            </span>
+            Select all
+            <span className="ml-auto text-xs font-normal text-slate-400">{manualFiltered.length} shown</span>
+          </button>
           <div className="mt-1 max-h-56 space-y-1 overflow-y-auto pr-1">
             {manualFiltered.map((s) => {
               const on = manual.has(s.code);
