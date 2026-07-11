@@ -125,7 +125,9 @@ export default function LabelsPage() {
   const stickers = useMemo(() => {
     const filtered = rows.filter(
       (r) =>
-        r.qty_on_hand > 0 &&
+        // per-piece needs stock (0 → 0 labels); "1 per SKU" / custom print a new
+        // size's QR even at 0 stock, so you can sticker before restocking.
+        (qtyMode === "perPiece" ? r.qty_on_hand > 0 : true) &&
         (styleCode === "all" || r.style_code === styleCode) &&
         (category === "all" || r.category === category)
     );
