@@ -79,6 +79,8 @@ export default function LabelsPage() {
   const [category, setCategory] = useState("all");
   const [qtyMode, setQtyMode] = useState<QtyMode>("perPiece");
   const [customCopies, setCustomCopies] = useState(1);
+  const [manual, setManual] = useState<Set<string>>(new Set()); // manually-ticked style_codes
+  const [manualQuery, setManualQuery] = useState("");
 
   // QR cache (keyed by sku + pixel size so resizing regenerates)
   const [qrMap, setQrMap] = useState<Record<string, string>>({});
@@ -123,13 +125,17 @@ export default function LabelsPage() {
 
   // one entry per sticker to print
   const stickers = useMemo(() => {
+    const useManual = manual.size > 0;
     const filtered = rows.filter(
       (r) =>
         // per-piece needs stock (0 → 0 labels); "1 per SKU" / custom print a new
         // size's QR even at 0 stock, so you can sticker before restocking.
         (qtyMode === "perPiece" ? r.qty_on_hand > 0 : true) &&
-        (styleCode === "all" || r.style_code === styleCode) &&
-        (category === "all" || r.category === category)
+        // manual picks override the Style/Category filters when any are ticked.
+        (useManual
+          ? manual.has(r.style_code)
+          : (styleCode === "all" || r.style_code === styleCode) &&
+            (category === "all" || r.category === category))
     );
     const copiesOf = (r: StockRow) =>
       qtyMode === "perPiece" ? r.qty_on_hand : qtyMode === "perSku" ? 1 : Math.max(1, customCopies);
@@ -139,7 +145,12 @@ export default function LabelsPage() {
       for (let i = 0; i < n; i++) out.push({ key: `${r.variant_sku}-${i}`, row: r });
     }
     return out;
-  }, [rows, styleCode, category, qtyMode, customCopies]);
+  }, [rows, styleCode, category, qtyMode, customCopies, manual]);
+
+  const manualFiltered = useMemo(() => {
+    const q = manualQuery.trim().toLowerCase();
+    return q ? styles.filter((s) => `${s.name} ${s.code}`.toLowerCase().includes(q)) : styles;
+  }, [manualQuery, styles]);
 
   const uniqueSkus = useMemo(
     () => Array.from(new Set(stickers.map((s) => s.row.variant_sku))),
@@ -403,6 +414,62 @@ export default function LabelsPage() {
               ))}
             </select>
           </label>
+        </div>
+
+        {/* manual multi-select — reprint specific styles the printer skipped */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Pick styles manually
+              {manual.size > 0 && <span className="text-brand"> · {manual.size} selected</span>}
+            </p>
+            {manual.size > 0 && (
+              <button onClick={() => setManual(new Set())} className="text-xs text-slate-400 underline">
+                Clear
+              </button>
+            )}
+          </div>
+          {manual.size > 0 && (
+            <p className="mt-1 text-xs text-slate-400">Manual picks are active — Style &amp; Category above are ignored.</p>
+          )}
+          <input
+            value={manualQuery}
+            onChange={(e) => setManualQuery(e.target.value)}
+            placeholder="Search styles to tick (e.g. Epson, Sparrow)…"
+            className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand"
+          />
+          <div className="mt-2 flex items-center justify-between text-xs">
+            <button onClick={() => setManual(new Set(manualFiltered.map((s) => s.code)))} className="font-medium text-brand">
+              Select all shown
+            </button>
+            <span className="text-slate-400">{manualFiltered.length} shown</span>
+          </div>
+          <div className="mt-1 max-h-56 space-y-1 overflow-y-auto pr-1">
+            {manualFiltered.map((s) => {
+              const on = manual.has(s.code);
+              return (
+                <button
+                  key={s.code}
+                  onClick={() =>
+                    setManual((prev) => {
+                      const n = new Set(prev);
+                      if (n.has(s.code)) n.delete(s.code);
+                      else n.add(s.code);
+                      return n;
+                    })
+                  }
+                  className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${on ? "border-brand bg-brand/5" : "border-slate-200 hover:bg-slate-50"}`}
+                >
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${on ? "border-brand bg-brand text-white" : "border-slate-300"}`}>
+                    {on ? "✓" : ""}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {s.name} <span className="text-xs text-slate-400">{s.code}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* count + print */}
