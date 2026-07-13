@@ -180,7 +180,8 @@ export default function SellPage() {
     async (rawSku: string) => {
       const sku = rawSku.trim().toUpperCase();
       if (!sku) return;
-      if (/^CTN[-]?\d/i.test(sku)) {
+      if (/CTN-?\d/i.test(sku)) {
+        // bare carton id OR the IMS carton-URL QR — either way, not a garment
         feedback(false);
         showToast("That's a carton — open Find in Cartons", "warn");
         return;

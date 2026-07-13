@@ -1,10 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// POST /api/cartons — pack/index a carton (or clear it).
-//   { carton, items:[{sku,qty}], mode?:'add'|'set', label?, location?, note? }
+// The carton store is SHARED with the IMS (ims_cartons / ims_carton_items).
+// IMS packs via its form (pack_carton); the booth scan-packs via ims_carton_add.
+
+// GET /api/cartons — every carton with a contents summary grouped by product
+// (feeds the "print label with contents" flow).
+export async function GET() {
+  noStore();
+  const cartons = (await sql`
+    SELECT carton_no, note AS label, location, total_qty
+    FROM ims_cartons WHERE status <> 'Cancelled' ORDER BY carton_no`) as any[];
+  const rows = (await sql`
+    SELECT carton_id, name, size, qty FROM v_carton_contents ORDER BY name, size`) as any[];
+
+  const byCarton = new Map<string, any[]>();
+  for (const r of rows) {
+    const arr = byCarton.get(r.carton_id) || [];
+    arr.push(r);
+    byCarton.set(r.carton_id, arr);
+  }
+  const out = cartons.map((c) => {
+    const items = byCarton.get(c.carton_no) || [];
+    // group lines by product name: EARTH PLAIN 04 ×5 (M×2 · L×3)
+    const groups = new Map<string, { name: string; total: number; sizes: string[] }>();
+    for (const it of items) {
+      const g = groups.get(it.name) || { name: it.name, total: 0, sizes: [] as string[] };
+      g.total += it.qty;
+      g.sizes.push(`${it.size}×${it.qty}`);
+      groups.set(it.name, g);
+    }
+    return {
+      carton_id: c.carton_no,
+      label: c.label,
+      location: c.location,
+      pieces: items.reduce((n, it) => n + it.qty, 0),
+      products: Array.from(groups.values()).map((g) => ({
+        name: g.name,
+        total: g.total,
+        sizes: g.sizes.join(" · "),
+      })),
+    };
+  });
+  return NextResponse.json({ cartons: out });
+}
+
+// POST /api/cartons — scan-pack into a carton (auto-creates from a blank label).
+//   { carton, items:[{sku,qty}], mode?:'add'|'set', location? }
 //   { carton, clear:true }  → empty the carton's contents
 export async function POST(req: NextRequest) {
   let body: any;
@@ -17,7 +62,9 @@ export async function POST(req: NextRequest) {
   if (!carton) return NextResponse.json({ error: "carton_required" }, { status: 400 });
 
   if (body?.clear === true) {
-    await sql`DELETE FROM carton_items WHERE carton_id = ${carton}`;
+    await sql`DELETE FROM ims_carton_items
+              WHERE carton_id = (SELECT id FROM ims_cartons WHERE carton_no = ${carton})`;
+    await sql`UPDATE ims_cartons SET total_qty = 0 WHERE carton_no = ${carton}`;
     return NextResponse.json({ ok: true, cleared: true });
   }
 
@@ -34,19 +81,16 @@ export async function POST(req: NextRequest) {
   if (items.length === 0) return NextResponse.json({ error: "empty" }, { status: 400 });
 
   try {
-    const [{ carton_add: result }] = await sql`
-      SELECT carton_add(${carton}, ${JSON.stringify(items)}::jsonb, ${mode},
-                        ${body?.label ?? null}, ${body?.location ?? null}, ${body?.note ?? null}) AS carton_add`;
+    const [{ result }] = await sql`
+      SELECT ims_carton_add(${carton}, ${JSON.stringify(items)}::jsonb, ${mode},
+                            'booth-pos', ${body?.location ?? null}) AS result`;
     return NextResponse.json({ ok: true, result });
   } catch (err: any) {
     const msg: string = err?.message || "";
-    if (err?.code === "23514" || /carton_items_qty_check/i.test(msg))
-      return NextResponse.json({ error: "underflow", message: "That would drop the box below zero." }, { status: 409 });
-    // friendly business errors from the function (unknown item / remove-missing)
     const clean = msg.replace(/^.*?:\s*/, "").trim();
-    if (/unknown item|not in carton|below zero|required|invalid mode/i.test(msg))
+    if (/cannot remove more|below zero|unknown item|required|invalid mode/i.test(msg))
       return NextResponse.json({ error: "rejected", message: clean }, { status: 400 });
-    console.error("carton_add failed:", msg);
+    console.error("ims_carton_add failed:", msg);
     return NextResponse.json({ error: "failed", message: "Could not update the carton." }, { status: 500 });
   }
 }

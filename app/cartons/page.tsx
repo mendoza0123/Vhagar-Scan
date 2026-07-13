@@ -12,8 +12,16 @@ const sizeRank = (s: string) => {
   const i = SIZE_ORDER.indexOf((s || "").toUpperCase());
   return i < 0 ? 99 : i;
 };
-const isCarton = (s: string) => /^CTN[-]?\d/i.test(s.trim());
+// Carton QRs come in two flavours: a bare id ("CTN-0001" / "CTN-2026-0001")
+// or the IMS URL ("https://ims.vhagar.co/cartons/CTN-2026-0001") that any
+// phone camera can open. Extract the carton number from either.
+const cartonNoFrom = (s: string): string | null => {
+  const m = s.toUpperCase().match(/CTN-?[0-9][0-9-]*/);
+  return m ? m[0].replace(/-+$/, "").replace(/^CTN(?!-)/, "CTN-") : null;
+};
+const isCarton = (s: string) => cartonNoFrom(s) !== null;
 const norm = (s: string) => s.trim().toUpperCase();
+const IMS_BASE = "https://ims.vhagar.co"; // carton pages live on the IMS
 
 // Beep + buzz — copied from /sell so staff get eyes-free feedback.
 function feedback(ok: boolean) {
@@ -42,6 +50,13 @@ type CartonData = {
   carton: { carton_id: string; label: string | null; location: string | null; note: string | null };
   items: { variant_sku: string; name: string; size: string; qty: number; qty_on_hand: number }[];
 };
+type PackedCarton = {
+  carton_id: string;
+  label: string | null;
+  location: string | null;
+  pieces: number;
+  products: { name: string; total: number; sizes: string }[];
+};
 
 const MODES: [Mode, string, string][] = [
   ["find", "🔎", "Find"],
@@ -69,6 +84,9 @@ export default function CartonsPage() {
   const [labStart, setLabStart] = useState(1);
   const [labCount, setLabCount] = useState(12);
   const [labQrs, setLabQrs] = useState<{ id: string; url: string }[]>([]);
+  const [labSrc, setLabSrc] = useState<"blank" | "packed">("blank");
+  const [packedList, setPackedList] = useState<PackedCarton[]>([]);
+  const [selIds, setSelIds] = useState<Set<string>>(new Set());
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string, tone: "ok" | "warn" = "ok") => {
@@ -94,10 +112,11 @@ export default function CartonsPage() {
     } catch { feedback(false); showToast("Network error", "warn"); }
   }, [showToast]);
 
-  const doCarton = useCallback(async (id: string) => {
+  const doCarton = useCallback(async (raw: string) => {
+    const id = cartonNoFrom(raw) ?? norm(raw);
     try {
-      const res = await fetch(`/api/cartons/${encodeURIComponent(norm(id))}`);
-      if (res.status === 404) { feedback(false); setCartonData(null); showToast(`${norm(id)} not indexed yet`, "warn"); return; }
+      const res = await fetch(`/api/cartons/${encodeURIComponent(id)}`);
+      if (res.status === 404) { feedback(false); setCartonData(null); showToast(`${id} not indexed yet`, "warn"); return; }
       if (!res.ok) throw new Error();
       setCartonData(await res.json()); feedback(true);
     } catch { feedback(false); showToast("Network error", "warn"); }
@@ -144,13 +163,13 @@ export default function CartonsPage() {
     if (!st.armed) { scanState.current.set(code, st); return; }
     st.armed = false; scanState.current.set(code, st);
 
-    const carton = isCarton(code);
+    const cartonNo = cartonNoFrom(code);
     if (mode === "pack") {
-      if (carton) { setPackCarton(norm(code)); setTally([]); feedback(true); showToast(`Packing ${norm(code)}`, "ok"); }
+      if (cartonNo) { setPackCarton(cartonNo); setTally([]); feedback(true); showToast(`Packing ${cartonNo}`, "ok"); }
       else packOne(code);
       return;
     }
-    if (carton) { setMode("carton"); setCartonInput(norm(code)); doCarton(code); return; }
+    if (cartonNo) { setMode("carton"); setCartonInput(cartonNo); doCarton(cartonNo); return; }
     if (mode === "carton") { feedback(false); showToast("That's a garment — use Find", "warn"); return; }
     doFind(code);
   }, [mode, doFind, doCarton, packOne, showToast]);
@@ -175,10 +194,39 @@ export default function CartonsPage() {
     const n = Math.max(1, Math.min(200, Math.trunc(labCount) || 1));
     for (let i = 0; i < n; i++) {
       const id = `CTN-${String(Math.trunc(labStart) + i).padStart(4, "0")}`;
-      out.push({ id, url: await QRCode.toDataURL(id, { margin: 2, width: 240, errorCorrectionLevel: "M" }) });
+      // QR = the IMS carton URL: the POS scanner extracts the number, and any
+      // phone camera opens the box's contents page.
+      out.push({ id, url: await QRCode.toDataURL(`${IMS_BASE}/cartons/${id}`, { margin: 2, width: 240, errorCorrectionLevel: "M" }) });
     }
     setLabQrs(out);
   }, [labStart, labCount]);
+
+  // load the packed cartons whenever the Labels source switches to "packed"
+  useEffect(() => {
+    if (mode !== "labels" || labSrc !== "packed") return;
+    (async () => {
+      try {
+        const res = await fetch("/api/cartons", { cache: "no-store" });
+        if (!res.ok) throw new Error();
+        const d = await res.json();
+        const list: PackedCarton[] = (d.cartons || []).filter((c: PackedCarton) => c.pieces > 0);
+        setPackedList(list);
+        setSelIds(new Set(list.map((c) => c.carton_id))); // default: all selected
+      } catch {
+        showToast("Could not load cartons", "warn");
+      }
+    })();
+  }, [mode, labSrc, showToast]);
+
+  const genPackedLabels = useCallback(async () => {
+    const QRCode = (await import("qrcode")).default;
+    const out: { id: string; url: string }[] = [];
+    for (const c of packedList) {
+      if (!selIds.has(c.carton_id)) continue;
+      out.push({ id: c.carton_id, url: await QRCode.toDataURL(`${IMS_BASE}/cartons/${c.carton_id}`, { margin: 2, width: 240, errorCorrectionLevel: "M" }) });
+    }
+    setLabQrs(out);
+  }, [packedList, selIds]);
 
   const sel = findData?.sizes.find((s) => s.size === selSize) || null;
 
@@ -326,7 +374,7 @@ export default function CartonsPage() {
             <div className="flex gap-2">
               <input
                 value={packCarton}
-                onChange={(e) => setPackCarton(norm(e.target.value))}
+                onChange={(e) => setPackCarton(cartonNoFrom(e.target.value) ?? norm(e.target.value))}
                 placeholder="Scan/type the carton (CTN-0001)"
                 className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand"
               />
@@ -378,24 +426,89 @@ export default function CartonsPage() {
         <section className="flex flex-col gap-3">
           <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm no-print">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Print carton QR labels</p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <label className="text-xs text-slate-500">Start #
-                <input type="number" value={labStart} min={1} onChange={(e) => setLabStart(Math.max(1, Number(e.target.value)))}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand" />
-              </label>
-              <label className="text-xs text-slate-500">Count
-                <input type="number" value={labCount} min={1} max={200} onChange={(e) => setLabCount(Number(e.target.value))}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand" />
-              </label>
+            <div className="mt-2 flex gap-2">
+              {(
+                [
+                  ["blank", "New blank labels"],
+                  ["packed", "Packed (with contents)"],
+                ] as const
+              ).map(([s, label]) => (
+                <button
+                  key={s}
+                  onClick={() => { setLabSrc(s); setLabQrs([]); }}
+                  className={`flex-1 rounded-lg border px-2 py-2 text-xs font-medium ${labSrc === s ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <div className="mt-3 flex gap-2">
-              <button onClick={genLabels} className="btn btn-ghost flex-1">Generate</button>
-              <button onClick={() => window.print()} disabled={labQrs.length === 0} className="btn btn-primary flex-1 disabled:opacity-50">🖨 Print</button>
-            </div>
-            <p className="mt-2 text-xs text-slate-400">Stick these on the boxes. A box registers itself the first time you pack into it.</p>
+
+            {labSrc === "blank" ? (
+              <>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="text-xs text-slate-500">Start #
+                    <input type="number" value={labStart} min={1} onChange={(e) => setLabStart(Math.max(1, Number(e.target.value)))}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand" />
+                  </label>
+                  <label className="text-xs text-slate-500">Count
+                    <input type="number" value={labCount} min={1} max={200} onChange={(e) => setLabCount(Number(e.target.value))}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand" />
+                  </label>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={genLabels} className="btn btn-ghost flex-1">Generate</button>
+                  <button onClick={() => window.print()} disabled={labQrs.length === 0} className="btn btn-primary flex-1 disabled:opacity-50">🖨 Print</button>
+                </div>
+                <p className="mt-2 text-xs text-slate-400">Stick these on the boxes. A box registers itself the first time you pack into it.</p>
+              </>
+            ) : (
+              <>
+                {packedList.length === 0 ? (
+                  <p className="mt-3 text-sm text-slate-400">No packed cartons yet — use Pack first, then print a contents label here.</p>
+                ) : (
+                  <>
+                    <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={selIds.size === packedList.length}
+                        onChange={(e) => setSelIds(e.target.checked ? new Set(packedList.map((c) => c.carton_id)) : new Set())}
+                      />
+                      Select all ({packedList.length})
+                    </label>
+                    <ul className="mt-1 max-h-56 divide-y divide-slate-100 overflow-auto">
+                      {packedList.map((c) => (
+                        <li key={c.carton_id}>
+                          <label className="flex items-center gap-2 py-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={selIds.has(c.carton_id)}
+                              onChange={(e) => setSelIds((prev) => {
+                                const n = new Set(prev);
+                                if (e.target.checked) n.add(c.carton_id); else n.delete(c.carton_id);
+                                return n;
+                              })}
+                            />
+                            <span className="font-semibold">{c.carton_id}</span>
+                            <span className="text-xs text-slate-400">
+                              {c.pieces} pcs · {c.products.length} product{c.products.length === 1 ? "" : "s"}
+                              {c.location ? ` · ${c.location}` : ""}
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button onClick={genPackedLabels} disabled={selIds.size === 0} className="btn btn-ghost flex-1 disabled:opacity-50">Generate</button>
+                  <button onClick={() => window.print()} disabled={labQrs.length === 0} className="btn btn-primary flex-1 disabled:opacity-50">🖨 Print</button>
+                </div>
+                <p className="mt-2 text-xs text-slate-400">Pack the box first — this label lists what's inside (re-print after big changes).</p>
+              </>
+            )}
           </div>
 
-          {labQrs.length > 0 && (
+          {labQrs.length > 0 && labSrc === "blank" && (
             <div className="print-area grid grid-cols-3 gap-3">
               {labQrs.map((l) => (
                 <div key={l.id} className="flex break-inside-avoid flex-col items-center rounded-lg border border-slate-200 p-2">
@@ -404,6 +517,36 @@ export default function CartonsPage() {
                   <span className="mt-1 text-sm font-bold">{l.id}</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {labQrs.length > 0 && labSrc === "packed" && (
+            <div className="print-area grid grid-cols-2 gap-3">
+              {labQrs.map((l) => {
+                const c = packedList.find((p) => p.carton_id === l.id);
+                if (!c) return null;
+                return (
+                  <div key={l.id} className="break-inside-avoid rounded-lg border border-slate-300 p-2.5">
+                    <div className="flex items-center gap-2.5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={l.url} alt={l.id} className="w-20 shrink-0" style={{ imageRendering: "pixelated" }} />
+                      <div className="min-w-0">
+                        <p className="text-lg font-extrabold leading-tight">{l.id}</p>
+                        {c.location && <p className="text-xs text-slate-600">{c.location}</p>}
+                        <p className="text-xs text-slate-600">{c.pieces} pcs</p>
+                      </div>
+                    </div>
+                    <ul className="mt-1.5 border-t border-slate-200 pt-1.5 text-[11px] leading-snug">
+                      {c.products.map((p) => (
+                        <li key={p.name} className="flex justify-between gap-2">
+                          <span className="min-w-0 truncate font-medium">{p.name}</span>
+                          <span className="shrink-0 text-slate-600">×{p.total} ({p.sizes})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
