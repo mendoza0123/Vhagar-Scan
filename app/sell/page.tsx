@@ -180,6 +180,11 @@ export default function SellPage() {
     async (rawSku: string) => {
       const sku = rawSku.trim().toUpperCase();
       if (!sku) return;
+      if (/^CTN[-]?\d/i.test(sku)) {
+        feedback(false);
+        showToast("That's a carton — open Find in Cartons", "warn");
+        return;
+      }
       try {
         const res = await fetch(`/api/variants/${encodeURIComponent(sku)}`);
         if (res.status === 404) {
