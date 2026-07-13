@@ -95,8 +95,12 @@ export default function SellPage() {
   const [payment, setPayment] = useState<"cash" | "card" | "upi" | "other">("cash");
   const [channel, setChannel] = useState("Exhibition");
   const [channelOther, setChannelOther] = useState("");
+  const [freebies, setFreebies] = useState<string[]>([]); // "Cap" / "Kitchen" (multi)
   const [preview, setPreview] = useState(false);
   const saleChannel = channel === "Other" ? channelOther.trim() || "Other" : channel;
+  const freebieStr = freebies.length ? freebies.join(" + ") : null;
+  const toggleFreebie = (f: string) =>
+    setFreebies((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Variant[]>([]);
@@ -317,6 +321,7 @@ export default function SellPage() {
       soldBy: soldBy.trim() || null,
       paymentMethod: payment,
       channel: saleChannel,
+      freebie: freebieStr,
       customer: { name: name.trim() || null, phone: phone.trim() || null, address: address.trim() || null },
     };
 
@@ -365,6 +370,7 @@ export default function SellPage() {
       setPayment("cash");
       setChannel("Exhibition");
       setChannelOther("");
+      setFreebies([]);
       setStatus("idle");
     } catch {
       // network failure — DO NOT lose the cart; let them retry
@@ -561,6 +567,19 @@ export default function SellPage() {
             <input value={channelOther} onChange={(e) => setChannelOther(e.target.value)} placeholder="Type channel" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           )}
 
+          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Freebie given</p>
+          <div className="grid grid-cols-2 gap-2">
+            {["Cap", "Kitchen"].map((f) => (
+              <button
+                key={f}
+                onClick={() => toggleFreebie(f)}
+                className={`rounded-xl border px-2 py-2 text-sm font-medium ${freebies.includes(f) ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+              >
+                {freebies.includes(f) ? "✓ " : ""}{f}
+              </button>
+            ))}
+          </div>
+
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no." className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
@@ -677,6 +696,7 @@ export default function SellPage() {
             <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
               <p><b>Point of sale:</b> {saleChannel}</p>
               <p><b>Payment:</b> {{ cash: "Cash", card: "Card", upi: "UPI", other: "Other" }[payment]}</p>
+              <p><b>Freebie:</b> {freebieStr || "None"}</p>
               {name && <p><b>Name:</b> {name}</p>}
               {phone && <p><b>Mobile:</b> {phone}</p>}
               {address && <p><b>Address:</b> {address}</p>}

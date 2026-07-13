@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 
   const rows = todayOnly
     ? await sql`
-        SELECT s.id, s.bill_no, s.created_at, s.sold_by, s.payment_method, s.channel,
+        SELECT s.id, s.bill_no, s.created_at, s.sold_by, s.payment_method, s.channel, s.freebie,
                s.subtotal::float8 AS subtotal, s.discount::float8 AS discount,
                s.total::float8 AS total, s.status,
                si.variant_sku, si.name, si.size,
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
               = (now() AT TIME ZONE 'Asia/Kolkata')::date
         ORDER BY s.id DESC, si.id`
     : await sql`
-        SELECT s.id, s.bill_no, s.created_at, s.sold_by, s.payment_method, s.channel,
+        SELECT s.id, s.bill_no, s.created_at, s.sold_by, s.payment_method, s.channel, s.freebie,
                s.subtotal::float8 AS subtotal, s.discount::float8 AS discount,
                s.total::float8 AS total, s.status,
                si.variant_sku, si.name, si.size,
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
         ORDER BY s.id DESC, si.id`;
 
   const header = [
-    "bill_no", "datetime", "channel", "sold_by", "payment", "sku", "item", "size",
+    "bill_no", "datetime", "channel", "freebie", "sold_by", "payment", "sku", "item", "size",
     "qty", "unit_price", "line_total", "bill_subtotal", "bill_discount",
     "bill_total", "status",
   ];
@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
         r.bill_no ?? billNo(r.id),
         new Date(r.created_at).toISOString(),
         r.channel,
+        r.freebie,
         r.sold_by,
         r.payment_method,
         r.variant_sku,

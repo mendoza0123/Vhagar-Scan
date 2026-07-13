@@ -115,6 +115,19 @@ export default function AdminPage() {
         </span>
       </Link>
 
+      <Link
+        href="/admin/cartons"
+        className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm active:scale-[0.99]"
+      >
+        <span className="text-3xl">📦</span>
+        <span>
+          <span className="block text-lg font-semibold">Carton QR Labels</span>
+          <span className="block text-sm text-slate-500">
+            Print box labels with QR + contents list
+          </span>
+        </span>
+      </Link>
+
       <PriceSetter pin={pin} />
     </main>
   );
