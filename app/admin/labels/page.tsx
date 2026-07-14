@@ -80,11 +80,6 @@ export default function LabelsPage() {
   const [qtyMode, setQtyMode] = useState<QtyMode>("perPiece");
   const [customCopies, setCustomCopies] = useState(1);
   const [sizeSel, setSizeSel] = useState<Set<string>>(new Set()); // empty = all sizes
-
-  // picking a different style resets the size filter
-  useEffect(() => {
-    setSizeSel(new Set());
-  }, [styleCode]);
   const [manual, setManual] = useState<Set<string>>(new Set()); // manually-ticked style_codes
   const [manualQuery, setManualQuery] = useState("");
 
@@ -142,8 +137,9 @@ export default function LabelsPage() {
           ? manual.has(r.style_code)
           : (styleCode === "all" || r.style_code === styleCode) &&
             (category === "all" || r.category === category)) &&
-        // size filter (single-style mode): tick only the sizes you need
-        (useManual || styleCode === "all" || sizeSel.size === 0 || sizeSel.has(r.size))
+        // size filter — active whenever exactly one style is selected (via the
+        // Style dropdown OR a single manual tick)
+        (sizeSel.size === 0 || sizeSel.has(r.size))
     );
     const copiesOf = (r: StockRow) =>
       qtyMode === "perPiece" ? r.qty_on_hand : qtyMode === "perSku" ? 1 : Math.max(1, customCopies);
@@ -155,17 +151,30 @@ export default function LabelsPage() {
     return out;
   }, [rows, styleCode, category, qtyMode, customCopies, manual, sizeSel]);
 
-  // sizes available for the selected style (for the size-filter chips)
+  // The size filter works when exactly ONE style is selected — either via the
+  // Style dropdown, or a single tick in the manual picker.
+  const effStyle = useMemo(() => {
+    if (manual.size === 1) return Array.from(manual)[0];
+    if (manual.size === 0 && styleCode !== "all") return styleCode;
+    return null;
+  }, [manual, styleCode]);
+
+  // switching to a different (or no) single style resets the size filter
+  useEffect(() => {
+    setSizeSel(new Set());
+  }, [effStyle]);
+
+  // sizes available for that style (for the size-filter chips)
   const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"];
   const styleSizes = useMemo(() => {
-    if (styleCode === "all") return [];
-    const set = new Set(rows.filter((r) => r.style_code === styleCode).map((r) => r.size));
+    if (!effStyle) return [];
+    const set = new Set(rows.filter((r) => r.style_code === effStyle).map((r) => r.size));
     return Array.from(set).sort((a, b) => {
       const ia = SIZE_ORDER.indexOf(a.toUpperCase()), ib = SIZE_ORDER.indexOf(b.toUpperCase());
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, styleCode]);
+  }, [rows, effStyle]);
 
   const manualFiltered = useMemo(() => {
     const q = manualQuery.trim().toLowerCase();
@@ -438,7 +447,7 @@ export default function LabelsPage() {
         </div>
 
         {/* size filter — only print the sizes you need for the chosen style */}
-        {styleCode !== "all" && manual.size === 0 && styleSizes.length > 0 && (
+        {effStyle && styleSizes.length > 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Sizes to print{sizeSel.size > 0 && <span className="text-brand"> · {Array.from(sizeSel).join(", ")}</span>}
