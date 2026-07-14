@@ -79,6 +79,12 @@ export default function LabelsPage() {
   const [category, setCategory] = useState("all");
   const [qtyMode, setQtyMode] = useState<QtyMode>("perPiece");
   const [customCopies, setCustomCopies] = useState(1);
+  const [sizeSel, setSizeSel] = useState<Set<string>>(new Set()); // empty = all sizes
+
+  // picking a different style resets the size filter
+  useEffect(() => {
+    setSizeSel(new Set());
+  }, [styleCode]);
   const [manual, setManual] = useState<Set<string>>(new Set()); // manually-ticked style_codes
   const [manualQuery, setManualQuery] = useState("");
 
@@ -135,7 +141,9 @@ export default function LabelsPage() {
         (useManual
           ? manual.has(r.style_code)
           : (styleCode === "all" || r.style_code === styleCode) &&
-            (category === "all" || r.category === category))
+            (category === "all" || r.category === category)) &&
+        // size filter (single-style mode): tick only the sizes you need
+        (useManual || styleCode === "all" || sizeSel.size === 0 || sizeSel.has(r.size))
     );
     const copiesOf = (r: StockRow) =>
       qtyMode === "perPiece" ? r.qty_on_hand : qtyMode === "perSku" ? 1 : Math.max(1, customCopies);
@@ -145,7 +153,19 @@ export default function LabelsPage() {
       for (let i = 0; i < n; i++) out.push({ key: `${r.variant_sku}-${i}`, row: r });
     }
     return out;
-  }, [rows, styleCode, category, qtyMode, customCopies, manual]);
+  }, [rows, styleCode, category, qtyMode, customCopies, manual, sizeSel]);
+
+  // sizes available for the selected style (for the size-filter chips)
+  const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"];
+  const styleSizes = useMemo(() => {
+    if (styleCode === "all") return [];
+    const set = new Set(rows.filter((r) => r.style_code === styleCode).map((r) => r.size));
+    return Array.from(set).sort((a, b) => {
+      const ia = SIZE_ORDER.indexOf(a.toUpperCase()), ib = SIZE_ORDER.indexOf(b.toUpperCase());
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, styleCode]);
 
   const manualFiltered = useMemo(() => {
     const q = manualQuery.trim().toLowerCase();
@@ -416,6 +436,39 @@ export default function LabelsPage() {
             </select>
           </label>
         </div>
+
+        {/* size filter — only print the sizes you need for the chosen style */}
+        {styleCode !== "all" && manual.size === 0 && styleSizes.length > 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Sizes to print{sizeSel.size > 0 && <span className="text-brand"> · {Array.from(sizeSel).join(", ")}</span>}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setSizeSel(new Set())}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${sizeSel.size === 0 ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+              >
+                All sizes
+              </button>
+              {styleSizes.map((s) => (
+                <button
+                  key={s}
+                  onClick={() =>
+                    setSizeSel((prev) => {
+                      const n = new Set(prev);
+                      if (n.has(s)) n.delete(s);
+                      else n.add(s);
+                      return n;
+                    })
+                  }
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${sizeSel.has(s) ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+                >
+                  {sizeSel.has(s) ? "✓ " : ""}{s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* manual multi-select — reprint specific styles the printer skipped */}
         <div className="rounded-2xl border border-slate-200 bg-white p-3">
