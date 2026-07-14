@@ -45,7 +45,8 @@ export default function CartonLabelsPage() {
         if (!selIds.has(c.carton_id)) continue;
         out.push({
           id: c.carton_id,
-          url: await QRCode.toDataURL(`${IMS_BASE}/cartons/${c.carton_id}`, { margin: 2, width: 240, errorCorrectionLevel: "M" }),
+          // 36mm QR @ 8 dots/mm (203dpi thermal) ≈ 288px
+          url: await QRCode.toDataURL(`${IMS_BASE}/cartons/${c.carton_id}`, { margin: 2, width: 288, errorCorrectionLevel: "M" }),
         });
       }
       setQrs(out);
@@ -118,34 +119,51 @@ export default function CartonLabelsPage() {
           </button>
         </div>
         <p className="mt-2 text-xs text-slate-400">
+          Prints on the Endura roll — <b>45 × 90 mm</b>, one label per die-cut (same stock as garment tags).
+          In the print dialog: pick the Endura, Paper 45×90, Margins None, Scale 100%.
           Scanning a label with any phone camera opens that carton&apos;s contents page.
         </p>
       </div>
 
+      {/* 45×90mm die-cut labels — same physical media as the garment QR tags.
+          WYSIWYG: the preview is real mm; print emits one label per page. */}
+      <style>{`
+        .ctn-label{width:45mm;height:90mm;padding:2mm 2mm;display:flex;flex-direction:column;align-items:center;
+          box-sizing:border-box;overflow:hidden;background:#fff;color:#000;border:1px dashed #cbd5e1;}
+        .ctn-label img{width:36mm;height:36mm;image-rendering:pixelated;}
+        @media print{
+          @page{size:45mm 90mm;margin:0;}
+          .ctn-label{border:none;}
+          .ctn-label:not(:last-child){break-after:page;page-break-after:always;}
+        }
+      `}</style>
       {qrs.length > 0 && (
-        <div className="print-area grid grid-cols-2 gap-3">
+        <div className="print-area flex flex-col items-start gap-1 print:gap-0">
           {qrs.map((l) => {
             const c = list.find((p) => p.carton_id === l.id);
             if (!c) return null;
+            const MAX_LINES = 8;
             return (
-              <div key={l.id} className="break-inside-avoid rounded-lg border border-slate-300 p-2.5">
-                <div className="flex items-center gap-2.5">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={l.url} alt={l.id} className="w-20 shrink-0" style={{ imageRendering: "pixelated" }} />
-                  <div className="min-w-0">
-                    <p className="text-lg font-extrabold leading-tight">{l.id}</p>
-                    {c.location && <p className="text-xs text-slate-600">{c.location}</p>}
-                    <p className="text-xs text-slate-600">{c.pieces} pcs</p>
-                  </div>
-                </div>
-                <ul className="mt-1.5 border-t border-slate-200 pt-1.5 text-[11px] leading-snug">
-                  {c.products.map((p) => (
-                    <li key={p.name} className="flex justify-between gap-2">
-                      <span className="min-w-0 truncate font-medium">{p.name}</span>
-                      <span className="shrink-0 text-slate-600">×{p.total} ({p.sizes})</span>
-                    </li>
+              <div key={l.id} className="ctn-label">
+                <p className="text-[7pt] font-semibold uppercase tracking-[0.2em]">Vhagar · Carton</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={l.url} alt={l.id} />
+                <p className="font-mono text-[10.5pt] font-extrabold leading-tight">{l.id}</p>
+                <p className="text-[7pt] leading-tight">
+                  {c.pieces} pcs · {c.products.length} style{c.products.length === 1 ? "" : "s"}
+                  {c.location ? ` · ${c.location}` : ""}
+                </p>
+                <div className="mt-[1mm] w-full border-t border-black pt-[1mm]">
+                  {c.products.slice(0, MAX_LINES).map((p) => (
+                    <div key={p.name} className="flex justify-between gap-1 text-[6pt] leading-[1.35]">
+                      <span className="min-w-0 truncate font-semibold">{p.name}</span>
+                      <span className="shrink-0">×{p.total} {p.sizes.replaceAll(" · ", " ")}</span>
+                    </div>
                   ))}
-                </ul>
+                  {c.products.length > MAX_LINES && (
+                    <p className="text-[6pt] italic">+ {c.products.length - MAX_LINES} more — scan QR</p>
+                  )}
+                </div>
               </div>
             );
           })}
