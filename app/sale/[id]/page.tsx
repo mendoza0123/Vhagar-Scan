@@ -32,13 +32,15 @@ async function getSale(id: number) {
   return { ...sale, items };
 }
 
-// Map the stored payment_method onto the four printed boxes.
-function payKey(pm: string | null): "cash" | "card" | "upi" | "other" {
+// Map the stored payment_method onto the four printed boxes. Payments can be
+// split ("cash + upi") — tick every method present.
+function payFlags(pm: string | null): { cash: boolean; card: boolean; upi: boolean; other: boolean } {
   const s = (pm || "cash").toLowerCase();
-  if (s.includes("cash")) return "cash";
-  if (s.includes("card") || s.includes("credit")) return "card";
-  if (s.includes("upi")) return "upi";
-  return "other";
+  const cash = s.includes("cash");
+  const card = s.includes("card") || s.includes("credit");
+  const upi = s.includes("upi");
+  const other = s.includes("other") || (!cash && !card && !upi);
+  return { cash, card, upi, other };
 }
 
 const MIN_ROWS = 8;
@@ -51,7 +53,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
   if (!sale) notFound();
 
   const billNo = sale.bill_no ?? deriveBillNo(sale.id);
-  const pk = payKey(sale.payment_method);
+  const pk = payFlags(sale.payment_method);
   const address = sale.delivery_method || ""; // ADDRESS reuses delivery_method until a field is added
   const padRows = Math.max(0, MIN_ROWS - sale.items.length);
 
@@ -95,10 +97,10 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               <div className="flex border-b border-black">
                 <LabelCell>Payment</LabelCell>
                 <div className="flex flex-1 flex-wrap items-center gap-x-8 gap-y-2 px-4 py-3">
-                  <PayBox label="Cash" on={pk === "cash"} />
-                  <PayBox label="Credit Card" on={pk === "card"} />
-                  <PayBox label="UPI" on={pk === "upi"} />
-                  <PayBox label="Other" on={pk === "other"} />
+                  <PayBox label="Cash" on={pk.cash} />
+                  <PayBox label="Credit Card" on={pk.card} />
+                  <PayBox label="UPI" on={pk.upi} />
+                  <PayBox label="Other" on={pk.other} />
                 </div>
               </div>
               <div className="flex">

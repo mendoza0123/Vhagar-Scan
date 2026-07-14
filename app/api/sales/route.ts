@@ -28,8 +28,10 @@ export async function POST(req: NextRequest) {
   const address: string | null = body?.customer?.address?.toString().trim() || null;
   const channel: string | null = body?.channel?.toString().trim() || null;
   const freebie: string | null = body?.freebie?.toString().trim() || null;
-  const pmRaw = (body?.paymentMethod || "cash").toString().toLowerCase();
-  const paymentMethod = ["cash", "card", "upi", "other"].includes(pmRaw) ? pmRaw : "cash";
+  // Payment can be split ("cash + upi") — keep only known tokens, joined stably.
+  const pmTokens = (body?.paymentMethod || "cash").toString().toLowerCase().split(/[^a-z]+/)
+    .filter((t: string, i: number, a: string[]) => ["cash", "card", "upi", "other"].includes(t) && a.indexOf(t) === i);
+  const paymentMethod = pmTokens.length ? pmTokens.join(" + ") : "cash";
 
   // ---- validate the cart ----
   const items: IncomingItem[] = [];
@@ -77,6 +79,15 @@ export async function POST(req: NextRequest) {
       ) AS id`;
     const id = Number(rows[0].id);
     const bill_no = billNo(id);
+
+    // Deduct the sold pieces from whichever carton(s) hold them, so the box
+    // index tracks reality. Best-effort: a piece from the display rack simply
+    // isn't in any carton, and a failure here never blocks the sale.
+    try {
+      await sql`SELECT cartons_consume(${payload}::jsonb)`;
+    } catch {
+      /* carton index is a locator; the sale itself already succeeded */
+    }
 
     // Stamp a human-friendly bill number + address (delivery_method) — best
     // effort; both are derivable/optional so a failure here never blocks the sale.

@@ -60,8 +60,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const phone = body?.customer_phone?.toString().trim() || null;
   const address = body?.address?.toString().trim() || null;
   const note = body?.note?.toString().trim() || null;
-  const pmRaw = (body?.payment_method || "").toString().toLowerCase();
-  const pm = ["cash", "card", "upi", "other"].includes(pmRaw) ? pmRaw : null;
+  // payment can be split ("cash + upi") — keep known tokens only
+  const pmTokens = (body?.payment_method || "").toString().toLowerCase().split(/[^a-z]+/)
+    .filter((t: string, i: number, a: string[]) => ["cash", "card", "upi", "other"].includes(t) && a.indexOf(t) === i);
+  const pm = pmTokens.length ? pmTokens.join(" + ") : null;
 
   await sql`UPDATE sales SET
       customer_name = ${name}, customer_phone = ${phone}, delivery_method = ${address},

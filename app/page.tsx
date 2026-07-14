@@ -2,6 +2,7 @@ import Link from "next/link";
 
 const TILES = [
   { href: "/sell", label: "Scan & Sell", emoji: "📷", primary: true, sub: "Scan a tag, build the bill" },
+  { href: "/find", label: "Find in Cartons", emoji: "🔎", sub: "Which box holds a product" },
   { href: "/stock", label: "Live Stock", emoji: "📦", sub: "Inventory by style & size" },
   { href: "/sales", label: "Sales Log", emoji: "🧾", sub: "Today's bills & total" },
   { href: "/admin", label: "Admin & Labels", emoji: "⚙️", sub: "Prices + print QR labels" },

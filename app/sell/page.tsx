@@ -92,7 +92,14 @@ export default function SellPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [payment, setPayment] = useState<"cash" | "card" | "upi" | "other">("cash");
+  const [payments, setPayments] = useState<string[]>(["cash"]); // multi: "cash + upi"
+  const PM_LABEL: Record<string, string> = { cash: "Cash", card: "Card", upi: "UPI", other: "Other" };
+  const togglePayment = (p: string) =>
+    setPayments((prev) => {
+      const next = prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p];
+      return next.length ? next : prev; // at least one stays selected
+    });
+  const paymentStr = payments.map((p) => PM_LABEL[p]).join(" + ");
   const [channel, setChannel] = useState("Exhibition");
   const [channelOther, setChannelOther] = useState("");
   const [freebies, setFreebies] = useState<string[]>([]); // "Cap" / "Kitchen" (multi)
@@ -319,7 +326,7 @@ export default function SellPage() {
       items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price) })),
       discount: discountNum,
       soldBy: soldBy.trim() || null,
-      paymentMethod: payment,
+      paymentMethod: payments.join(" + "),
       channel: saleChannel,
       freebie: freebieStr,
       customer: { name: name.trim() || null, phone: phone.trim() || null, address: address.trim() || null },
@@ -367,7 +374,7 @@ export default function SellPage() {
       setName("");
       setPhone("");
       setAddress("");
-      setPayment("cash");
+      setPayments(["cash"]);
       setChannel("Exhibition");
       setChannelOther("");
       setFreebies([]);
@@ -588,13 +595,16 @@ export default function SellPage() {
             {(["cash", "card", "upi", "other"] as const).map((p) => (
               <button
                 key={p}
-                onClick={() => setPayment(p)}
-                className={`rounded-xl border px-2 py-2 text-sm font-medium ${payment === p ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+                onClick={() => togglePayment(p)}
+                className={`rounded-xl border px-2 py-2 text-sm font-medium ${payments.includes(p) ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
               >
-                {{ cash: "Cash", card: "Card", upi: "UPI", other: "Other" }[p]}
+                {payments.includes(p) ? "✓ " : ""}{PM_LABEL[p]}
               </button>
             ))}
           </div>
+          {payments.length > 1 && (
+            <p className="text-xs text-slate-500">Split payment: {paymentStr}</p>
+          )}
           <input
             value={soldBy}
             onChange={(e) => setSoldBy(e.target.value)}
@@ -695,7 +705,7 @@ export default function SellPage() {
             </div>
             <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
               <p><b>Point of sale:</b> {saleChannel}</p>
-              <p><b>Payment:</b> {{ cash: "Cash", card: "Card", upi: "UPI", other: "Other" }[payment]}</p>
+              <p><b>Payment:</b> {paymentStr}</p>
               <p><b>Freebie:</b> {freebieStr || "None"}</p>
               {name && <p><b>Name:</b> {name}</p>}
               {phone && <p><b>Mobile:</b> {phone}</p>}

@@ -23,13 +23,20 @@ export default function BillActions(p: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [f, setF] = useState({
+  const [f, setF] = useState(() => ({
     name: p.customerName || "",
     phone: p.customerPhone || "",
     address: p.address || "",
-    payment: (p.paymentMethod || "cash").toLowerCase(),
+    // payment can be split ("cash + upi") — keep it as a token array
+    payments: (p.paymentMethod || "cash").toLowerCase().split(/[^a-z]+/)
+      .filter((t, i, a) => ["cash", "card", "upi", "other"].includes(t) && a.indexOf(t) === i),
     note: p.note || "",
-  });
+  }));
+  const togglePayment = (pm: string) =>
+    setF((cur) => {
+      const next = cur.payments.includes(pm) ? cur.payments.filter((x) => x !== pm) : [...cur.payments, pm];
+      return { ...cur, payments: next.length ? next : cur.payments };
+    });
 
   // Filename: brand-product-bill.pdf, e.g. Vhagar-TEST-FABRIC-VH-2026-0010.pdf
   const filename = `Vhagar-${(p.product || "bill").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${p.billNo}.pdf`;
@@ -96,7 +103,7 @@ export default function BillActions(p: Props) {
     setBusy("edit");
     const res = await fetch(`/api/sales/${p.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_name: f.name, customer_phone: f.phone, address: f.address, payment_method: f.payment, note: f.note }),
+      body: JSON.stringify({ customer_name: f.name, customer_phone: f.phone, address: f.address, payment_method: f.payments.join(" + "), note: f.note }),
     });
     setBusy(null);
     if (res.ok) { setEditing(false); router.refresh(); }
@@ -138,8 +145,8 @@ export default function BillActions(p: Props) {
               <input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Address" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
               <div className="grid grid-cols-4 gap-2">
                 {(["cash", "card", "upi", "other"] as const).map((pm) => (
-                  <button key={pm} onClick={() => setF({ ...f, payment: pm })} className={`rounded-xl border px-2 py-2 text-sm font-medium ${f.payment === pm ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}>
-                    {PM_LABEL[pm]}
+                  <button key={pm} onClick={() => togglePayment(pm)} className={`rounded-xl border px-2 py-2 text-sm font-medium ${f.payments.includes(pm) ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}>
+                    {f.payments.includes(pm) ? "✓ " : ""}{PM_LABEL[pm]}
                   </button>
                 ))}
               </div>
