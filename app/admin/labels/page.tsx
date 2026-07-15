@@ -649,10 +649,19 @@ function LabelContent({
     placeholder
   );
 
+  const isSample = row.category === "Old Sample";
+
   // Font sizes are in em, relative to .qr-label's font-size (which scales with the label).
   const text = (
     <div className="min-w-0 leading-[1.12]">
-      <p className="text-[0.65em] font-semibold uppercase tracking-[0.15em] text-black">Vhagar</p>
+      {isSample ? (
+        // bordered band — visually distinct AND thermal-safe (no bg-fill needed)
+        <p className="mb-[0.4mm] border-[0.4mm] border-black px-[0.5mm] text-center text-[0.72em] font-extrabold uppercase tracking-[0.12em] text-black">
+          Old Sample
+        </p>
+      ) : (
+        <p className="text-[0.65em] font-semibold uppercase tracking-[0.15em] text-black">Vhagar</p>
+      )}
       <p className="line-clamp-2 break-words text-[1em] font-bold leading-[1.05] text-black">
         {row.name}
       </p>
