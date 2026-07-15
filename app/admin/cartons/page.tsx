@@ -128,7 +128,7 @@ export default function CartonLabelsPage() {
       {/* 45×90mm die-cut labels — same physical media as the garment QR tags.
           WYSIWYG: the preview is real mm; print emits one label per page. */}
       <style>{`
-        .ctn-label{width:45mm;height:90mm;padding:2mm 2mm;display:flex;flex-direction:column;align-items:center;
+        .ctn-label{width:45mm;height:90mm;flex-shrink:0;padding:2mm 2mm;display:flex;flex-direction:column;align-items:center;
           box-sizing:border-box;overflow:hidden;background:#fff;color:#000;border:1px dashed #cbd5e1;}
         .ctn-label img{width:36mm;height:36mm;image-rendering:pixelated;}
         @media print{
@@ -138,7 +138,11 @@ export default function CartonLabelsPage() {
         }
       `}</style>
       {qrs.length > 0 && (
-        <div className="print-area flex flex-col items-start gap-1 print:gap-0">
+        // .print-area must stay a plain block (print CSS absolutely positions it
+        // at page size — a flex .print-area squashes every label into one page).
+        // The flex column lives INSIDE it, same as the garment-labels page.
+        <div className="print-area">
+        <div className="flex flex-col items-start gap-1 print:gap-0">
           {qrs.map((l) => {
             const c = list.find((p) => p.carton_id === l.id);
             if (!c) return null;
@@ -167,6 +171,7 @@ export default function CartonLabelsPage() {
               </div>
             );
           })}
+        </div>
         </div>
       )}
     </main>
