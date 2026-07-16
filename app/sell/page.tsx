@@ -46,7 +46,8 @@ const DISCOUNT_KEY = "vhagar.discount.v2";
 const SOLDBY_KEY = "vhagar.soldBy.v1";
 
 // Freebie options — each can be given in a quantity via +/- on the sell screen.
-const FREEBIE_OPTIONS = ["Cap", "Kitchen"] as const;
+const FREEBIE_OPTIONS = ["Cap", "Key Chain"] as const;
+const NO_FREEBIES: Record<string, number> = { Cap: 0, "Key Chain": 0 };
 // Booth staff for the "Sold by" dropdown. TODO: swap for the real names.
 const SOLD_BY_OPTIONS = ["Aditya", "Naushi", "Angel"];
 
@@ -108,7 +109,7 @@ export default function SellPage() {
   const paymentStr = payments.map((p) => PM_LABEL[p]).join(" + ");
   const [channel, setChannel] = useState("Exhibition");
   const [channelOther, setChannelOther] = useState("");
-  const [freebieCounts, setFreebieCounts] = useState<Record<string, number>>({ Cap: 0, Kitchen: 0 });
+  const [freebieCounts, setFreebieCounts] = useState<Record<string, number>>({ ...NO_FREEBIES });
   const [preview, setPreview] = useState(false);
   const saleChannel = channel === "Other" ? channelOther.trim() || "Other" : channel;
   // stored as "Cap x2 + Kitchen x1" (only counts > 0); null when none given
@@ -390,7 +391,7 @@ export default function SellPage() {
       setPayments(["cash"]);
       setChannel("Exhibition");
       setChannelOther("");
-      setFreebieCounts({ Cap: 0, Kitchen: 0 });
+      setFreebieCounts({ ...NO_FREEBIES });
       setStatus("idle");
     } catch {
       // network failure — DO NOT lose the cart; let them retry
@@ -401,7 +402,8 @@ export default function SellPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col gap-4 p-4 pb-32">
+    // pb-64 clears the ~190px sticky checkout bar so the last field is never buried
+    <main className="flex min-h-screen flex-col gap-4 p-4 pb-64">
       <header className="flex items-center justify-between">
         <Link href="/" className="text-sm font-medium text-brand">
           ← Home
@@ -587,6 +589,18 @@ export default function SellPage() {
             <input value={channelOther} onChange={(e) => setChannelOther(e.target.value)} placeholder="Type channel" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           )}
 
+          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Sold by</p>
+          <select
+            value={soldBy}
+            onChange={(e) => setSoldBy(e.target.value)}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base outline-none focus:border-brand"
+          >
+            <option value="">Select staff…</option>
+            {SOLD_BY_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Freebie given</p>
           <div className="grid grid-cols-2 gap-2">
             {FREEBIE_OPTIONS.map((f) => {
@@ -639,16 +653,6 @@ export default function SellPage() {
           {payments.length > 1 && (
             <p className="text-xs text-slate-500">Split payment: {paymentStr}</p>
           )}
-          <select
-            value={soldBy}
-            onChange={(e) => setSoldBy(e.target.value)}
-            className="mt-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base outline-none focus:border-brand"
-          >
-            <option value="">Sold by…</option>
-            {SOLD_BY_OPTIONS.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
         </section>
       )}
 

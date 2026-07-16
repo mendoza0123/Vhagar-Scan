@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 type Props = {
   id: number;
   billNo: string;
-  product: string;
   status: string;
   shareText: string;
   customerName: string | null;
@@ -40,8 +39,8 @@ export default function BillActions(p: Props) {
       return { ...cur, payments: next.length ? next : cur.payments };
     });
 
-  // Filename: brand-product-bill.pdf, e.g. Vhagar-TEST-FABRIC-VH-2026-0010.pdf
-  const filename = `Vhagar-${(p.product || "bill").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${p.billNo}.pdf`;
+  // Filename is brand + bill no only, e.g. Vhagar-VH-2026-0023.pdf
+  const filename = `Vhagar-${p.billNo}.pdf`;
 
   // Snapshot the on-page bill (#bill-doc) to an A4 PDF blob. Forced to 820px wide
   // so the phone's narrow viewport doesn't cramp the document.
@@ -112,14 +111,32 @@ export default function BillActions(p: Props) {
     if (d.length === 11 && d.startsWith("0")) return "91" + d.slice(1);
     return d;                                            // already has a country code
   };
-  // Open WhatsApp straight to the customer's number with the bill details.
-  // NOTE: a WhatsApp link can't pre-attach the PDF (platform limit) — the
-  // details go as text; use Share PDF to send the file itself.
-  const whatsappBill = () => {
-    const num = waNumber(p.customerPhone);
-    if (!num) return;
-    const text = `${p.shareText}\n\nThank you for shopping with Vhagar 🐉`;
-    window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+  // Send the bill to the customer on WhatsApp as a real PDF attachment.
+  // Platform limit: no web API can BOTH attach a file AND pre-pick the chat, so
+  // we attach the PDF via the native share sheet (tap WhatsApp → pick the
+  // customer) — that's the only way the file itself travels. Desktop has no file
+  // share, so there we save the PDF and open the chat at the right number.
+  const whatsappBill = async () => {
+    setBusy("pdf");
+    try {
+      const blob = await makeBlob();
+      const file = new File([blob], filename, { type: "application/pdf" });
+      const nav = navigator as any;
+      if (nav.canShare?.({ files: [file] })) {
+        await nav.share({ files: [file], title: filename, text: `Vhagar bill ${p.billNo}` });
+      } else {
+        download(blob);
+        const num = waNumber(p.customerPhone);
+        if (num) {
+          const text = `${p.shareText}\n\n(Bill PDF attached — ${filename})`;
+          window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+        }
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") alert("Could not create the PDF — use Print → Save as PDF.");
+    } finally {
+      setBusy(null);
+    }
   };
 
   const voidSale = async () => {
@@ -158,11 +175,15 @@ export default function BillActions(p: Props) {
         <button onClick={downloadPdf} disabled={busy === "pdf"} className="btn btn-ghost">⬇ Download PDF</button>
         <button
           onClick={whatsappBill}
-          disabled={!p.customerPhone}
-          title={p.customerPhone ? `WhatsApp to ${p.customerPhone}` : "Add the customer's mobile (Edit) first"}
+          disabled={!p.customerPhone || busy === "pdf"}
+          title={p.customerPhone ? `WhatsApp the PDF to ${p.customerPhone}` : "Add the customer's mobile (Edit) first"}
           className="btn btn-ghost col-span-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {p.customerPhone ? `📱 WhatsApp → ${p.customerPhone}` : "📱 WhatsApp — no mobile on bill"}
+          {busy === "pdf"
+            ? "Preparing…"
+            : p.customerPhone
+            ? `📱 WhatsApp PDF → ${p.customerPhone}`
+            : "📱 WhatsApp — no mobile on bill"}
         </button>
         <button
           onClick={emailBill}

@@ -8,10 +8,13 @@ import FreebieThumb from "./FreebieThumb";
 
 // Freebies given at the booth, shown on the bill as complimentary line items.
 // mrp is only the struck-through "value" shown next to FREE — adjust freely.
-// Drop the matching photos at public/freebies/cap.png and kitchen.png.
+// Photos live in public/freebies/.
+const KEY_CHAIN = { label: "Exclusive Vhagar Key Chain", img: "/freebies/keychain.png", mrp: 299 };
 const FREEBIE_META: Record<string, { label: string; img: string; mrp: number }> = {
   cap: { label: "Exclusive Vhagar Cap", img: "/freebies/cap.png", mrp: 499 },
-  kitchen: { label: "Exclusive Vhagar Kitchen", img: "/freebies/kitchen.png", mrp: 299 },
+  "key chain": KEY_CHAIN,
+  keychain: KEY_CHAIN,
+  kitchen: KEY_CHAIN, // bills written before the rename stored this as "Kitchen"
 };
 function parseFreebies(freebie: string | null) {
   return (freebie || "")
@@ -246,7 +249,6 @@ export default async function BillPage({ params }: { params: { id: string } }) {
         <BillActions
           id={sale.id}
           billNo={billNo}
-          product={sale.items[0]?.name ?? "bill"}
           status={sale.status}
           shareText={shareText}
           customerName={sale.customer_name}
