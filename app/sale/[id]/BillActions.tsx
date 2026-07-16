@@ -104,39 +104,34 @@ export default function BillActions(p: Props) {
   };
 
   // Normalise an Indian mobile to WhatsApp's international form (no +, no spaces).
+  // wa.me rejects anything that isn't a full country-code number, so a bare 10
+  // digits must get 91, and 0-prefixed / mistyped extra digits fall back to the
+  // last 10 rather than shipping an invalid number WhatsApp refuses to open.
   const waNumber = (phone: string | null) => {
     const d = (phone || "").replace(/\D/g, "");
     if (!d) return "";
-    if (d.length === 10) return "91" + d;               // bare 10-digit mobile
-    if (d.length === 11 && d.startsWith("0")) return "91" + d.slice(1);
-    return d;                                            // already has a country code
+    if (d.length === 10) return "91" + d;
+    if (d.startsWith("91") && d.length === 12) return d;
+    if (d.length > 10) return "91" + d.slice(-10);
+    return d;
   };
-  // Send the bill to the customer on WhatsApp as a real PDF attachment.
-  // Platform limit: no web API can BOTH attach a file AND pre-pick the chat, so
-  // we attach the PDF via the native share sheet (tap WhatsApp → pick the
-  // customer) — that's the only way the file itself travels. Desktop has no file
-  // share, so there we save the PDF and open the chat at the right number.
-  const whatsappBill = async () => {
+  // Open WhatsApp straight at the customer's number — that is this button's whole
+  // point, so it always wins. A wa.me link cannot carry a file (no web API can
+  // both pick the chat AND attach one), so the PDF is saved alongside for staff
+  // to attach in the chat that just opened; "Share PDF" is the auto-attach path.
+  // window.open MUST fire synchronously here: after an await it falls outside the
+  // user gesture and the popup blocker silently kills the redirect.
+  const whatsappBill = () => {
+    const num = waNumber(p.customerPhone);
+    if (!num) return;
+    const text = `${p.shareText}\n\nThank you for shopping with Vhagar 🐉`;
+    window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+    // hand over the PDF too — best effort, never blocks the redirect above
     setBusy("pdf");
-    try {
-      const blob = await makeBlob();
-      const file = new File([blob], filename, { type: "application/pdf" });
-      const nav = navigator as any;
-      if (nav.canShare?.({ files: [file] })) {
-        await nav.share({ files: [file], title: filename, text: `Vhagar bill ${p.billNo}` });
-      } else {
-        download(blob);
-        const num = waNumber(p.customerPhone);
-        if (num) {
-          const text = `${p.shareText}\n\n(Bill PDF attached — ${filename})`;
-          window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
-        }
-      }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") alert("Could not create the PDF — use Print → Save as PDF.");
-    } finally {
-      setBusy(null);
-    }
+    makeBlob()
+      .then(download)
+      .catch(() => {})
+      .finally(() => setBusy(null));
   };
 
   const voidSale = async () => {
@@ -179,11 +174,7 @@ export default function BillActions(p: Props) {
           title={p.customerPhone ? `WhatsApp the PDF to ${p.customerPhone}` : "Add the customer's mobile (Edit) first"}
           className="btn btn-ghost col-span-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy === "pdf"
-            ? "Preparing…"
-            : p.customerPhone
-            ? `📱 WhatsApp PDF → ${p.customerPhone}`
-            : "📱 WhatsApp — no mobile on bill"}
+          {p.customerPhone ? `📱 WhatsApp → ${p.customerPhone}` : "📱 WhatsApp — no mobile on bill"}
         </button>
         <button
           onClick={emailBill}
