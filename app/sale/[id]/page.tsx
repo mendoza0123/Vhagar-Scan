@@ -43,7 +43,7 @@ function payFlags(pm: string | null): { cash: boolean; card: boolean; upi: boole
   return { cash, card, upi, other };
 }
 
-const MIN_ROWS = 8;
+const MIN_ROWS = 6; // padded blank rows to keep the bill on ONE page
 
 export default async function BillPage({ params }: { params: { id: string } }) {
   const id = Number(params.id);
