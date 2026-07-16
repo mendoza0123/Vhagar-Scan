@@ -82,14 +82,15 @@ export default async function BillPage({ params }: { params: { id: string } }) {
   const freebies = parseFreebies(sale.freebie);
   const padRows = Math.max(0, MIN_ROWS - sale.items.length - freebies.length);
 
+  // Short, professional note pre-filled into WhatsApp / Gmail. Staff attach the
+  // downloaded PDF by hand — no link (wa.me or Gmail) can carry a file.
+  const firstName = (sale.customer_name || "").trim().split(/\s+/)[0];
   const shareText = [
-    "VHAGAR",
-    `Bill ${billNo}`,
-    billDateTime(sale.created_at),
+    `Hi ${firstName || "there"},`,
     "",
-    ...sale.items.map((l: SaleItem) => `${l.qty}× ${l.name} ${l.size} — ${money(l.line_total)}`),
+    `Thank you for shopping with Vhagar. Your bill ${billNo} for ${money(sale.total)} is attached.`,
     "",
-    `Total: ${money(sale.total)}`,
+    "Own Your Flame 🐉",
   ].join("\n");
 
   return (

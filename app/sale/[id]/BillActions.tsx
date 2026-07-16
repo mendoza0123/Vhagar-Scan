@@ -96,7 +96,7 @@ export default function BillActions(p: Props) {
   const emailBill = () => {
     const to = p.customerEmail || "";
     const su = `Your Vhagar bill ${p.billNo}`;
-    const body = `${p.shareText}\n\nThank you for shopping with Vhagar.\nOwn Your Flame 🐉`;
+    const body = `${p.shareText}\n\nVhagar Clothing · vhagar.co · +91-88303 97228`;
     // authuser pins the sender to the booth account even if other Google
     // accounts are signed into this browser. ponytail: hardcoded booth sender.
     const url = `https://mail.google.com/mail/?view=cm&fs=1&authuser=pos@vhagar.co&to=${encodeURIComponent(to)}&su=${encodeURIComponent(su)}&body=${encodeURIComponent(body)}`;
@@ -115,23 +115,15 @@ export default function BillActions(p: Props) {
     if (d.length > 10) return "91" + d.slice(-10);
     return d;
   };
-  // Open WhatsApp straight at the customer's number — that is this button's whole
-  // point, so it always wins. A wa.me link cannot carry a file (no web API can
-  // both pick the chat AND attach one), so the PDF is saved alongside for staff
-  // to attach in the chat that just opened; "Share PDF" is the auto-attach path.
-  // window.open MUST fire synchronously here: after an await it falls outside the
-  // user gesture and the popup blocker silently kills the redirect.
+  // Opens the customer's chat (works for numbers that aren't saved contacts) with
+  // the note pre-typed; staff attach the already-downloaded PDF via 📎. A wa.me
+  // link cannot carry a file, and auto-downloading here would duplicate the file
+  // staff just saved. window.open MUST stay synchronous — after an await it falls
+  // outside the user gesture and the popup blocker silently kills the redirect.
   const whatsappBill = () => {
     const num = waNumber(p.customerPhone);
     if (!num) return;
-    const text = `${p.shareText}\n\nThank you for shopping with Vhagar 🐉`;
-    window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
-    // hand over the PDF too — best effort, never blocks the redirect above
-    setBusy("pdf");
-    makeBlob()
-      .then(download)
-      .catch(() => {})
-      .finally(() => setBusy(null));
+    window.open(`https://wa.me/${num}?text=${encodeURIComponent(p.shareText)}`, "_blank", "noopener");
   };
 
   const voidSale = async () => {
@@ -164,17 +156,19 @@ export default function BillActions(p: Props) {
         </p>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <button onClick={sharePdf} disabled={busy === "pdf"} className="btn btn-primary">
-          {busy === "pdf" ? "Preparing…" : "📤 Share PDF"}
+        <button onClick={downloadPdf} disabled={busy === "pdf"} className="btn btn-primary col-span-2">
+          {busy === "pdf" ? "Preparing…" : "⬇ 1 · Download PDF"}
         </button>
-        <button onClick={downloadPdf} disabled={busy === "pdf"} className="btn btn-ghost">⬇ Download PDF</button>
+        <p className="col-span-2 -mb-1 text-center text-xs text-slate-400">
+          then send it below and attach the downloaded PDF
+        </p>
         <button
           onClick={whatsappBill}
-          disabled={!p.customerPhone || busy === "pdf"}
-          title={p.customerPhone ? `WhatsApp the PDF to ${p.customerPhone}` : "Add the customer's mobile (Edit) first"}
+          disabled={!p.customerPhone}
+          title={p.customerPhone ? `Open WhatsApp chat with ${p.customerPhone}` : "Add the customer's mobile (Edit) first"}
           className="btn btn-ghost col-span-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {p.customerPhone ? `📱 WhatsApp → ${p.customerPhone}` : "📱 WhatsApp — no mobile on bill"}
+          {p.customerPhone ? `📱 2 · WhatsApp → ${p.customerPhone}` : "📱 WhatsApp — no mobile on bill"}
         </button>
         <button
           onClick={emailBill}
@@ -182,9 +176,12 @@ export default function BillActions(p: Props) {
           title={p.customerEmail ? `Email to ${p.customerEmail}` : "Add the customer's email (Edit) first"}
           className="btn btn-ghost col-span-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {p.customerEmail ? `✉️ Share Email → ${p.customerEmail}` : "✉️ Share Email — no email on bill"}
+          {p.customerEmail ? `✉️ 2 · Email → ${p.customerEmail}` : "✉️ Email — no email on bill"}
         </button>
-        <button onClick={() => window.print()} className="btn btn-ghost col-span-2">🖨 Print</button>
+        <button onClick={sharePdf} disabled={busy === "pdf"} className="btn btn-ghost">
+          {busy === "pdf" ? "Preparing…" : "📤 Share PDF"}
+        </button>
+        <button onClick={() => window.print()} className="btn btn-ghost">🖨 Print</button>
         {p.status === "completed" && (
           <>
             <button onClick={() => setEditing(true)} className="btn btn-ghost">✎ Edit</button>
