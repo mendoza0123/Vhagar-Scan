@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
   const customerPhone: string | null =
     body?.customer?.phone?.toString().trim() || null;
   const address: string | null = body?.customer?.address?.toString().trim() || null;
+  const customerEmail: string | null = body?.customer?.email?.toString().trim() || null;
   const channel: string | null = body?.channel?.toString().trim() || null;
   const freebie: string | null = body?.freebie?.toString().trim() || null;
   // Payment can be split ("cash + upi") — keep only known tokens, joined stably.
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
     // Stamp a human-friendly bill number + address (delivery_method) — best
     // effort; both are derivable/optional so a failure here never blocks the sale.
     try {
-      await sql`UPDATE sales SET bill_no = ${bill_no}, delivery_method = ${address}, channel = ${channel}, freebie = ${freebie} WHERE id = ${id}`;
+      await sql`UPDATE sales SET bill_no = ${bill_no}, delivery_method = ${address}, channel = ${channel}, freebie = ${freebie}, customer_email = ${customerEmail} WHERE id = ${id}`;
     } catch {
       /* ignore — bill_no is derivable from id at read time */
     }

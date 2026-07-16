@@ -58,6 +58,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const name = body?.customer_name?.toString().trim() || null;
   const phone = body?.customer_phone?.toString().trim() || null;
+  const email = body?.customer_email?.toString().trim() || null;
   const address = body?.address?.toString().trim() || null;
   const note = body?.note?.toString().trim() || null;
   // payment can be split ("cash + upi") — keep known tokens only
@@ -66,8 +67,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const pm = pmTokens.length ? pmTokens.join(" + ") : null;
 
   await sql`UPDATE sales SET
-      customer_name = ${name}, customer_phone = ${phone}, delivery_method = ${address},
-      note = ${note}, payment_method = COALESCE(${pm}, payment_method)
+      customer_name = ${name}, customer_phone = ${phone}, customer_email = ${email},
+      delivery_method = ${address}, note = ${note}, payment_method = COALESCE(${pm}, payment_method)
     WHERE id = ${id} AND status = 'completed'`;
   return NextResponse.json({ ok: true });
 }

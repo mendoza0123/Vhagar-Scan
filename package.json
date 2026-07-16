@@ -10,6 +10,7 @@
     "lint": "next lint",
     "db:schema": "node scripts/run-sql.mjs db/schema.sql",
     "db:seed": "node scripts/run-sql.mjs db/seed.sql",
+    "db:pos-v3": "node scripts/run-sql.mjs db/pos-v3.sql",
     "ims:check": "node scripts/sync-from-ims.mjs",
     "ims:sync": "node scripts/sync-from-ims.mjs --apply"
   },

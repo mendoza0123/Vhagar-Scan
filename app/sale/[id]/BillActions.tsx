@@ -12,6 +12,7 @@ type Props = {
   shareText: string;
   customerName: string | null;
   customerPhone: string | null;
+  customerEmail: string | null;
   address: string | null;
   paymentMethod: string;
   note: string | null;
@@ -26,6 +27,7 @@ export default function BillActions(p: Props) {
   const [f, setF] = useState(() => ({
     name: p.customerName || "",
     phone: p.customerPhone || "",
+    email: p.customerEmail || "",
     address: p.address || "",
     // payment can be split ("cash + upi") — keep it as a token array
     payments: (p.paymentMethod || "cash").toLowerCase().split(/[^a-z]+/)
@@ -88,6 +90,18 @@ export default function BillActions(p: Props) {
     finally { setBusy(null); }
   };
 
+  // Open Gmail already signed in as pos@vhagar.co, pre-addressed to the
+  // customer with the bill details in the body. NOTE: a Gmail compose link
+  // can't pre-attach a file (Gmail blocks that) — the details go in the body;
+  // for the PDF itself use Share/Download PDF and attach it.
+  const emailBill = () => {
+    const to = p.customerEmail || "";
+    const su = `Your Vhagar bill ${p.billNo}`;
+    const body = `${p.shareText}\n\nThank you for shopping with Vhagar.\nOwn Your Flame 🐉`;
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(su)}&body=${encodeURIComponent(body)}`;
+    window.open(url, "_blank", "noopener");
+  };
+
   const voidSale = async () => {
     if (!confirm("Void this bill and restock all its items?")) return;
     setBusy("void");
@@ -103,7 +117,7 @@ export default function BillActions(p: Props) {
     setBusy("edit");
     const res = await fetch(`/api/sales/${p.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_name: f.name, customer_phone: f.phone, address: f.address, payment_method: f.payments.join(" + "), note: f.note }),
+      body: JSON.stringify({ customer_name: f.name, customer_phone: f.phone, customer_email: f.email, address: f.address, payment_method: f.payments.join(" + "), note: f.note }),
     });
     setBusy(null);
     if (res.ok) { setEditing(false); router.refresh(); }
@@ -122,6 +136,14 @@ export default function BillActions(p: Props) {
           {busy === "pdf" ? "Preparing…" : "📤 Share PDF"}
         </button>
         <button onClick={downloadPdf} disabled={busy === "pdf"} className="btn btn-ghost">⬇ Download PDF</button>
+        <button
+          onClick={emailBill}
+          disabled={!p.customerEmail}
+          title={p.customerEmail ? `Email to ${p.customerEmail}` : "Add the customer's email (Edit) first"}
+          className="btn btn-ghost col-span-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {p.customerEmail ? `✉️ Share Email → ${p.customerEmail}` : "✉️ Share Email — no email on bill"}
+        </button>
         <button onClick={() => window.print()} className="btn btn-ghost col-span-2">🖨 Print</button>
         {p.status === "completed" && (
           <>
@@ -142,6 +164,7 @@ export default function BillActions(p: Props) {
             <div className="mt-3 flex flex-col gap-2">
               <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Name" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
               <input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} inputMode="tel" placeholder="Mobile no." className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
+              <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" inputMode="email" autoCapitalize="off" placeholder="Email" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
               <input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Address" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
               <div className="grid grid-cols-4 gap-2">
                 {(["cash", "card", "upi", "other"] as const).map((pm) => (

@@ -4,6 +4,22 @@ import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
 import { money, billNo as deriveBillNo, billDateTime } from "@/lib/format";
 import BillActions from "./BillActions";
+import FreebieThumb from "./FreebieThumb";
+
+// Freebies given at the booth, shown on the bill as complimentary line items.
+// mrp is only the struck-through "value" shown next to FREE — adjust freely.
+// Drop the matching photos at public/freebies/cap.png and kitchen.png.
+const FREEBIE_META: Record<string, { label: string; img: string; mrp: number }> = {
+  cap: { label: "Exclusive Vhagar Cap", img: "/freebies/cap.png", mrp: 499 },
+  kitchen: { label: "Exclusive Vhagar Kitchen", img: "/freebies/kitchen.png", mrp: 299 },
+};
+function parseFreebies(freebie: string | null) {
+  return (freebie || "")
+    .split("+")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((raw) => FREEBIE_META[raw.toLowerCase()] ?? { label: `Exclusive Vhagar ${raw}`, img: "", mrp: 0 });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +37,7 @@ async function getSale(id: number) {
   const rows = await sql`
     SELECT id, bill_no, subtotal::float8 AS subtotal, discount::float8 AS discount,
            total::float8 AS total, payment_method, customer_name, customer_phone,
-           delivery_method, note, sold_by, status, created_at
+           customer_email, delivery_method, freebie, note, sold_by, status, created_at
     FROM sales WHERE id = ${id}`;
   if (rows.length === 0) return null;
   const sale = rows[0] as any;
@@ -43,7 +59,7 @@ function payFlags(pm: string | null): { cash: boolean; card: boolean; upi: boole
   return { cash, card, upi, other };
 }
 
-const MIN_ROWS = 6; // padded blank rows to keep the bill on ONE page
+const MIN_ROWS = 5; // total item+freebie+blank rows — kept low so the bill fits ONE page
 
 export default async function BillPage({ params }: { params: { id: string } }) {
   const id = Number(params.id);
@@ -55,7 +71,8 @@ export default async function BillPage({ params }: { params: { id: string } }) {
   const billNo = sale.bill_no ?? deriveBillNo(sale.id);
   const pk = payFlags(sale.payment_method);
   const address = sale.delivery_method || ""; // ADDRESS reuses delivery_method until a field is added
-  const padRows = Math.max(0, MIN_ROWS - sale.items.length);
+  const freebies = parseFreebies(sale.freebie);
+  const padRows = Math.max(0, MIN_ROWS - sale.items.length - freebies.length);
 
   const shareText = [
     "VHAGAR",
@@ -94,6 +111,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               <FieldRow label="Name" value={sale.customer_name || ""} />
               <FieldRow label="Mobile No." value={sale.customer_phone || ""} />
               <FieldRow label="Address" value={address} />
+              <FieldRow label="Email" value={sale.customer_email || ""} />
               <div className="flex border-b border-black">
                 <LabelCell>Payment</LabelCell>
                 <div className="flex flex-1 flex-wrap items-center gap-x-8 gap-y-2 px-4 py-3">
@@ -131,6 +149,26 @@ export default async function BillPage({ params }: { params: { id: string } }) {
                   </td>
                   <td className="border border-black px-3 py-2.5 text-right tabular-nums">{money(l.unit_price)}</td>
                   <td className="border border-black px-3 py-2.5 text-right font-medium tabular-nums">{money(l.line_total)}</td>
+                </tr>
+              ))}
+              {freebies.map((f, i) => (
+                <tr key={`free-${i}`}>
+                  <td className="border border-black px-3 py-2 text-center tabular-nums">1</td>
+                  <td className="border border-black px-3 py-2">
+                    <div className="flex items-center gap-2.5">
+                      <FreebieThumb src={f.img} alt={f.label} />
+                      <span>
+                        <span className="font-medium">{f.label}</span>
+                        <span className="ml-2 align-middle whitespace-nowrap rounded border border-black px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                          Free gift
+                        </span>
+                      </span>
+                    </div>
+                  </td>
+                  <td className="border border-black px-3 py-2 text-right tabular-nums text-slate-400 line-through">
+                    {f.mrp ? money(f.mrp) : ""}
+                  </td>
+                  <td className="border border-black px-3 py-2 text-right font-bold tabular-nums">FREE</td>
                 </tr>
               ))}
               {Array.from({ length: padRows }).map((_, i) => (
@@ -214,6 +252,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
           shareText={shareText}
           customerName={sale.customer_name}
           customerPhone={sale.customer_phone}
+          customerEmail={sale.customer_email}
           address={sale.delivery_method}
           paymentMethod={sale.payment_method}
           note={sale.note}

@@ -91,6 +91,7 @@ export default function SellPage() {
   const [soldBy, setSoldBy] = useState<string>("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
   const [payments, setPayments] = useState<string[]>(["cash"]); // multi: "cash + upi"
   const PM_LABEL: Record<string, string> = { cash: "Cash", card: "Card", upi: "UPI", other: "Other" };
@@ -329,7 +330,7 @@ export default function SellPage() {
       paymentMethod: payments.join(" + "),
       channel: saleChannel,
       freebie: freebieStr,
-      customer: { name: name.trim() || null, phone: phone.trim() || null, address: address.trim() || null },
+      customer: { name: name.trim() || null, phone: phone.trim() || null, email: email.trim() || null, address: address.trim() || null },
     };
 
     try {
@@ -373,6 +374,7 @@ export default function SellPage() {
       clearCart();
       setName("");
       setPhone("");
+      setEmail("");
       setAddress("");
       setPayments(["cash"]);
       setChannel("Exhibition");
@@ -591,6 +593,7 @@ export default function SellPage() {
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no." className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (optional)" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" autoCapitalize="off" placeholder="Email (optional — to email the bill)" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <div className="grid grid-cols-4 gap-2 pt-1">
             {(["cash", "card", "upi", "other"] as const).map((p) => (
               <button
@@ -709,6 +712,7 @@ export default function SellPage() {
               <p><b>Freebie:</b> {freebieStr || "None"}</p>
               {name && <p><b>Name:</b> {name}</p>}
               {phone && <p><b>Mobile:</b> {phone}</p>}
+              {email && <p><b>Email:</b> {email}</p>}
               {address && <p><b>Address:</b> {address}</p>}
             </div>
             <div className="mt-5 grid grid-cols-2 gap-2">
