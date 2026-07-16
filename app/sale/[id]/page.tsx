@@ -84,13 +84,17 @@ export default async function BillPage({ params }: { params: { id: string } }) {
 
   // Short, professional note pre-filled into WhatsApp / Gmail. Staff attach the
   // downloaded PDF by hand — no link (wa.me or Gmail) can carry a file.
+  // NO EMOJI HERE: this string is serialised server->client, and astral-plane
+  // chars (e.g. 🐉, a surrogate pair) come out the other side as a literal
+  // "🐉" — the customer would receive the raw escape. BMP chars like ₹
+  // are fine. Matches the bill's own plain "OWN YOUR FLAME" sign-off anyway.
   const firstName = (sale.customer_name || "").trim().split(/\s+/)[0];
   const shareText = [
     `Hi ${firstName || "there"},`,
     "",
     `Thank you for shopping with Vhagar. Your bill ${billNo} for ${money(sale.total)} is attached.`,
     "",
-    "Own Your Flame 🐉",
+    "Own Your Flame",
   ].join("\n");
 
   return (
