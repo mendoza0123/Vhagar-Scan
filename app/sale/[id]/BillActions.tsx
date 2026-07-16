@@ -98,7 +98,9 @@ export default function BillActions(p: Props) {
     const to = p.customerEmail || "";
     const su = `Your Vhagar bill ${p.billNo}`;
     const body = `${p.shareText}\n\nThank you for shopping with Vhagar.\nOwn Your Flame 🐉`;
-    const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(su)}&body=${encodeURIComponent(body)}`;
+    // authuser pins the sender to the booth account even if other Google
+    // accounts are signed into this browser. ponytail: hardcoded booth sender.
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&authuser=pos@vhagar.co&to=${encodeURIComponent(to)}&su=${encodeURIComponent(su)}&body=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener");
   };
 
