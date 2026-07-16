@@ -9,11 +9,14 @@ export const dynamic = "force-dynamic";
 // bulk-print: every carton with a contents summary grouped by product.
 export async function GET() {
   noStore();
+  // status='Packed' means REAL BOXES ONLY. The display rack is status='Rack' and
+  // must never reach this feed — it has no QR and no sticker, by design.
   const cartons = (await sql`
     SELECT carton_no, note AS label, location, total_qty
-    FROM ims_cartons WHERE status <> 'Cancelled' ORDER BY carton_no`) as any[];
+    FROM ims_cartons WHERE status = 'Packed' ORDER BY carton_no`) as any[];
   const rows = (await sql`
-    SELECT carton_id, name, size, qty FROM v_carton_contents ORDER BY name, size`) as any[];
+    SELECT carton_id, name, size, qty FROM v_carton_contents
+    WHERE status = 'Packed' ORDER BY name, size`) as any[];
 
   const byCarton = new Map<string, any[]>();
   for (const r of rows) {
