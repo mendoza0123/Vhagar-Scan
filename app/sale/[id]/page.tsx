@@ -188,6 +188,15 @@ export default async function BillPage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
+          {/* terms & conditions */}
+          <div className="mt-3 border border-black px-4 py-3">
+            <p className="text-sm font-bold uppercase tracking-wide">Terms &amp; Conditions</p>
+            <ul className="mt-1 space-y-0.5 text-[13px]">
+              <li>• Thank you for your purchase.</li>
+              <li>• No Exchange, No Return, No Refund.</li>
+            </ul>
+          </div>
+
           <div className="flex items-center justify-center gap-3 py-3">
             <span className="h-px w-10 bg-black" />
             <span className="text-sm font-semibold uppercase tracking-[0.35em]">Own Your Flame</span>
