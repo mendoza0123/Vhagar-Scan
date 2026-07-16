@@ -104,6 +104,24 @@ export default function BillActions(p: Props) {
     window.open(url, "_blank", "noopener");
   };
 
+  // Normalise an Indian mobile to WhatsApp's international form (no +, no spaces).
+  const waNumber = (phone: string | null) => {
+    const d = (phone || "").replace(/\D/g, "");
+    if (!d) return "";
+    if (d.length === 10) return "91" + d;               // bare 10-digit mobile
+    if (d.length === 11 && d.startsWith("0")) return "91" + d.slice(1);
+    return d;                                            // already has a country code
+  };
+  // Open WhatsApp straight to the customer's number with the bill details.
+  // NOTE: a WhatsApp link can't pre-attach the PDF (platform limit) — the
+  // details go as text; use Share PDF to send the file itself.
+  const whatsappBill = () => {
+    const num = waNumber(p.customerPhone);
+    if (!num) return;
+    const text = `${p.shareText}\n\nThank you for shopping with Vhagar 🐉`;
+    window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+  };
+
   const voidSale = async () => {
     if (!confirm("Void this bill and restock all its items?")) return;
     setBusy("void");
@@ -138,6 +156,14 @@ export default function BillActions(p: Props) {
           {busy === "pdf" ? "Preparing…" : "📤 Share PDF"}
         </button>
         <button onClick={downloadPdf} disabled={busy === "pdf"} className="btn btn-ghost">⬇ Download PDF</button>
+        <button
+          onClick={whatsappBill}
+          disabled={!p.customerPhone}
+          title={p.customerPhone ? `WhatsApp to ${p.customerPhone}` : "Add the customer's mobile (Edit) first"}
+          className="btn btn-ghost col-span-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {p.customerPhone ? `📱 WhatsApp → ${p.customerPhone}` : "📱 WhatsApp — no mobile on bill"}
+        </button>
         <button
           onClick={emailBill}
           disabled={!p.customerEmail}

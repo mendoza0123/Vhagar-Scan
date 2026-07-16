@@ -45,6 +45,11 @@ const CART_KEY = "vhagar.cart.v2";
 const DISCOUNT_KEY = "vhagar.discount.v2";
 const SOLDBY_KEY = "vhagar.soldBy.v1";
 
+// Freebie options — each can be given in a quantity via +/- on the sell screen.
+const FREEBIE_OPTIONS = ["Cap", "Kitchen"] as const;
+// Booth staff for the "Sold by" dropdown. TODO: swap for the real names.
+const SOLD_BY_OPTIONS = ["Aditya", "Naushi", "Angel"];
+
 // ---- per-line blocking reason (null = ok to bill) ----
 function lineBlock(l: Line): string | null {
   const p = Number(l.price);
@@ -103,12 +108,16 @@ export default function SellPage() {
   const paymentStr = payments.map((p) => PM_LABEL[p]).join(" + ");
   const [channel, setChannel] = useState("Exhibition");
   const [channelOther, setChannelOther] = useState("");
-  const [freebies, setFreebies] = useState<string[]>([]); // "Cap" / "Kitchen" (multi)
+  const [freebieCounts, setFreebieCounts] = useState<Record<string, number>>({ Cap: 0, Kitchen: 0 });
   const [preview, setPreview] = useState(false);
   const saleChannel = channel === "Other" ? channelOther.trim() || "Other" : channel;
-  const freebieStr = freebies.length ? freebies.join(" + ") : null;
-  const toggleFreebie = (f: string) =>
-    setFreebies((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
+  // stored as "Cap x2 + Kitchen x1" (only counts > 0); null when none given
+  const freebieStr =
+    FREEBIE_OPTIONS.filter((f) => (freebieCounts[f] || 0) > 0)
+      .map((f) => `${f} x${freebieCounts[f]}`)
+      .join(" + ") || null;
+  const bumpFreebie = (f: string, d: number) =>
+    setFreebieCounts((c) => ({ ...c, [f]: Math.max(0, (c[f] || 0) + d) }));
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Variant[]>([]);
@@ -290,7 +299,9 @@ export default function SellPage() {
   const discountNum = Math.min(Math.max(0, Number(discount) || 0), subtotal);
   const total = Math.max(0, subtotal - discountNum);
   const blockingLines = cart.filter((l) => lineBlock(l) !== null);
-  const canCheckout = cart.length > 0 && blockingLines.length === 0 && status === "idle";
+  const customerOk = name.trim().length > 0 && phone.trim().length > 0; // Name + Mobile are mandatory
+  const canCheckout =
+    cart.length > 0 && blockingLines.length === 0 && customerOk && status === "idle";
 
   // ---- checkout: re-check stock, then process_sale ----
   const checkout = async () => {
@@ -379,7 +390,7 @@ export default function SellPage() {
       setPayments(["cash"]);
       setChannel("Exhibition");
       setChannelOther("");
-      setFreebies([]);
+      setFreebieCounts({ Cap: 0, Kitchen: 0 });
       setStatus("idle");
     } catch {
       // network failure — DO NOT lose the cart; let them retry
@@ -578,20 +589,40 @@ export default function SellPage() {
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Freebie given</p>
           <div className="grid grid-cols-2 gap-2">
-            {["Cap", "Kitchen"].map((f) => (
-              <button
-                key={f}
-                onClick={() => toggleFreebie(f)}
-                className={`rounded-xl border px-2 py-2 text-sm font-medium ${freebies.includes(f) ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
-              >
-                {freebies.includes(f) ? "✓ " : ""}{f}
-              </button>
-            ))}
+            {FREEBIE_OPTIONS.map((f) => {
+              const n = freebieCounts[f] || 0;
+              return (
+                <div
+                  key={f}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2 ${n > 0 ? "border-brand bg-brand/5" : "border-slate-200 bg-white"}`}
+                >
+                  <span className="text-sm font-medium">{f}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => bumpFreebie(f, -1)}
+                      disabled={n === 0}
+                      aria-label={`One less ${f}`}
+                      className="h-8 w-8 rounded-lg border border-slate-300 text-lg font-bold leading-none active:bg-slate-100 disabled:opacity-30"
+                    >
+                      −
+                    </button>
+                    <span className="w-5 text-center text-base font-semibold tabular-nums">{n}</span>
+                    <button
+                      onClick={() => bumpFreebie(f, 1)}
+                      aria-label={`One more ${f}`}
+                      className="h-8 w-8 rounded-lg border border-slate-300 text-lg font-bold leading-none active:bg-slate-100"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no." className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${name.trim() ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no. (required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${phone.trim() ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
           <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (optional)" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" autoCapitalize="off" placeholder="Email (optional — to email the bill)" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <div className="grid grid-cols-4 gap-2 pt-1">
@@ -608,12 +639,16 @@ export default function SellPage() {
           {payments.length > 1 && (
             <p className="text-xs text-slate-500">Split payment: {paymentStr}</p>
           )}
-          <input
+          <select
             value={soldBy}
             onChange={(e) => setSoldBy(e.target.value)}
-            placeholder="Sold by (optional)"
-            className="mt-1 rounded-xl border border-slate-200 px-4 py-2 text-sm outline-none focus:border-brand"
-          />
+            className="mt-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base outline-none focus:border-brand"
+          >
+            <option value="">Sold by…</option>
+            {SOLD_BY_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </section>
       )}
 
@@ -671,6 +706,8 @@ export default function SellPage() {
               ? "Checking stock…"
               : blockingLines.length > 0
               ? `Fix ${blockingLines.length} item${blockingLines.length > 1 ? "s" : ""}`
+              : !customerOk
+              ? "Enter name & mobile no."
               : `Review & charge ${money(total)}`}
           </button>
         </div>

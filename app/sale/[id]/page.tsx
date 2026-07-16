@@ -18,7 +18,14 @@ function parseFreebies(freebie: string | null) {
     .split("+")
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((raw) => FREEBIE_META[raw.toLowerCase()] ?? { label: `Exclusive Vhagar ${raw}`, img: "", mrp: 0 });
+    .map((raw) => {
+      // token looks like "Cap" or "Cap x2"
+      const m = raw.match(/^(.*?)\s*x\s*(\d+)$/i);
+      const name = (m ? m[1] : raw).trim();
+      const qty = m ? Math.max(1, parseInt(m[2], 10)) : 1;
+      const meta = FREEBIE_META[name.toLowerCase()] ?? { label: `Exclusive Vhagar ${name}`, img: "", mrp: 0 };
+      return { ...meta, qty };
+    });
 }
 
 export const dynamic = "force-dynamic";
@@ -48,18 +55,18 @@ async function getSale(id: number) {
   return { ...sale, items };
 }
 
-// Map the stored payment_method onto the four printed boxes. Payments can be
-// split ("cash + upi") — tick every method present.
-function payFlags(pm: string | null): { cash: boolean; card: boolean; upi: boolean; other: boolean } {
-  const s = (pm || "cash").toLowerCase();
-  const cash = s.includes("cash");
-  const card = s.includes("card") || s.includes("credit");
-  const upi = s.includes("upi");
-  const other = s.includes("other") || (!cash && !card && !upi);
-  return { cash, card, upi, other };
+// Show only the payment method(s) actually used. Split → "UPI + Cash".
+function paymentLabel(pm: string | null): string {
+  const map: Record<string, string> = { cash: "Cash", card: "Credit Card", credit: "Credit Card", upi: "UPI", other: "Other" };
+  const labels: string[] = [];
+  for (const t of (pm || "cash").toLowerCase().split(/[^a-z]+/)) {
+    const l = map[t];
+    if (l && !labels.includes(l)) labels.push(l);
+  }
+  return labels.length ? labels.join(" + ") : "Cash";
 }
 
-const MIN_ROWS = 4; // total item+freebie+blank rows — kept low so the bill fits ONE page (incl. email row + up to 2 freebies)
+const MIN_ROWS = 5; // total item+freebie+blank rows — fits ONE page (Address row removed bought the headroom)
 
 export default async function BillPage({ params }: { params: { id: string } }) {
   const id = Number(params.id);
@@ -69,8 +76,6 @@ export default async function BillPage({ params }: { params: { id: string } }) {
   if (!sale) notFound();
 
   const billNo = sale.bill_no ?? deriveBillNo(sale.id);
-  const pk = payFlags(sale.payment_method);
-  const address = sale.delivery_method || ""; // ADDRESS reuses delivery_method until a field is added
   const freebies = parseFreebies(sale.freebie);
   const padRows = Math.max(0, MIN_ROWS - sale.items.length - freebies.length);
 
@@ -110,16 +115,10 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               />
               <FieldRow label="Name" value={sale.customer_name || ""} />
               <FieldRow label="Mobile No." value={sale.customer_phone || ""} />
-              <FieldRow label="Address" value={address} />
               <FieldRow label="Email" value={sale.customer_email || ""} />
               <div className="flex border-b border-black">
                 <LabelCell>Payment</LabelCell>
-                <div className="flex flex-1 flex-wrap items-center gap-x-8 gap-y-2 px-4 py-3">
-                  <PayBox label="Cash" on={pk.cash} />
-                  <PayBox label="Credit Card" on={pk.card} />
-                  <PayBox label="UPI" on={pk.upi} />
-                  <PayBox label="Other" on={pk.other} />
-                </div>
+                <div className="flex-1 px-4 py-3 font-medium uppercase tracking-wide">{paymentLabel(sale.payment_method)}</div>
               </div>
               <div className="flex">
                 <LabelCell>Notes</LabelCell>
@@ -153,7 +152,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               ))}
               {freebies.map((f, i) => (
                 <tr key={`free-${i}`}>
-                  <td className="border border-black px-3 py-2 text-center tabular-nums">1</td>
+                  <td className="border border-black px-3 py-2 text-center tabular-nums">{f.qty}</td>
                   <td className="border border-black px-3 py-2">
                     <div className="flex items-center gap-2.5">
                       <FreebieThumb src={f.img} alt={f.label} />
@@ -294,17 +293,6 @@ function Row2({ left, right }: { left: React.ReactNode; right: React.ReactNode }
     </div>
   );
 }
-function PayBox({ label, on }: { label: string; on: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-2 text-[15px]">
-      <span className="flex h-4 w-4 items-center justify-center border border-black text-[11px] leading-none">
-        {on ? "✓" : ""}
-      </span>
-      <span className="uppercase tracking-wide">{label}</span>
-    </span>
-  );
-}
-
 /* ---------- tiny inline icons (print-safe, currentColor) ---------- */
 function IconBox({ children }: { children: React.ReactNode }) {
   return (
