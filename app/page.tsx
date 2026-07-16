@@ -1,4 +1,5 @@
 import Link from "next/link";
+import StaffBadge from "@/components/staff-badge";
 
 const TILES = [
   { href: "/sell", label: "Scan & Sell", emoji: "📷", primary: true, sub: "Scan a tag, build the bill" },
@@ -15,6 +16,7 @@ export default function Home() {
       <header className="pb-2 pt-6">
         <h1 className="text-3xl font-bold tracking-tight text-brand">Vhagar POS</h1>
         <p className="text-sm text-slate-500">Bharat Tex 2026 · scan-to-bill</p>
+        <div className="pt-2"><StaffBadge /></div>
       </header>
 
       <nav className="grid grid-cols-1 gap-3">

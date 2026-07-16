@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { money } from "@/lib/format";
-import { staffName, switchStaff } from "@/lib/staff";
 
 // Scanner is client-only (camera). ssr:false keeps html5-qrcode off the server.
 const Scanner = dynamic(() => import("./Scanner"), { ssr: false });
@@ -44,10 +43,18 @@ type Receipt = {
 
 const CART_KEY = "vhagar.cart.v2";
 const DISCOUNT_KEY = "vhagar.discount.v2";
+const SOLDBY_KEY = "vhagar.soldBy.v1";
 
 // Freebie options — each can be given in a quantity via +/- on the sell screen.
 const FREEBIE_OPTIONS = ["Cap", "Key Chain"] as const;
 const NO_FREEBIES: Record<string, number> = { Cap: 0, "Key Chain": 0 };
+
+// "Sold by" is WHO CLOSED THE SALE — deliberately separate from the gate login
+// (that's who unlocked the device; the two aren't always the same person).
+// These are the standing names; /api/staff adds every name already billed, so
+// anything entered via "Others…" joins the list for good.
+const BASE_STAFF = ["Aditya", "Naushi", "Angel"];
+const OTHER = "__other__";
 
 // ---- per-line blocking reason (null = ok to bill) ----
 function lineBlock(l: Line): string | null {
@@ -93,6 +100,8 @@ export default function SellPage() {
   const [cart, setCart] = useState<Line[]>([]);
   const [discount, setDiscount] = useState<string>("0");
   const [soldBy, setSoldBy] = useState<string>("");
+  const [staffList, setStaffList] = useState<string[]>(BASE_STAFF);
+  const [isOther, setIsOther] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -140,9 +149,8 @@ export default function SellPage() {
       if (c) setCart(JSON.parse(c));
       const d = localStorage.getItem(DISCOUNT_KEY);
       if (d) setDiscount(d);
-      // Identity comes from the PIN gate, not a picker — sessionStorage is
-      // client-only, so it has to be read here rather than in useState.
-      setSoldBy(staffName());
+      const s = localStorage.getItem(SOLDBY_KEY);
+      if (s) setSoldBy(s);
     } catch {
       /* ignore corrupt storage */
     }
@@ -156,6 +164,22 @@ export default function SellPage() {
   useEffect(() => {
     if (hydrated) localStorage.setItem(DISCOUNT_KEY, discount);
   }, [discount, hydrated]);
+  useEffect(() => {
+    if (hydrated) localStorage.setItem(SOLDBY_KEY, soldBy);
+  }, [soldBy, hydrated]);
+
+  // Names already billed join the dropdown. Falls back to BASE_STAFF on a dead
+  // hotspot, so the picker always works.
+  useEffect(() => {
+    let live = true;
+    fetch("/api/staff")
+      .then((r) => (r.ok ? r.json() : { names: [] }))
+      .then((d) => {
+        if (live) setStaffList([...new Set([...BASE_STAFF, ...(d.names || [])])].sort());
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
 
   const showToast = useCallback((msg: string, tone: "ok" | "warn" = "ok") => {
     setToast({ msg, tone });
@@ -379,6 +403,11 @@ export default function SellPage() {
         total,
       });
       feedback(true);
+      // a name entered via "Others…" is now a real billed name — list it here
+      // too, so it shows without waiting for a reload/refetch
+      const sb = soldBy.trim();
+      if (sb && !staffList.includes(sb)) setStaffList((prev) => [...new Set([...prev, sb])].sort());
+      setIsOther(false);
       clearCart();
       setName("");
       setPhone("");
@@ -586,14 +615,30 @@ export default function SellPage() {
           )}
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Sold by</p>
-          {/* Identity is whoever unlocked the booth — not a picker, so a sale
-              can't be attributed to someone else by tapping a dropdown. */}
-          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5">
-            <span className="font-semibold">{soldBy || "—"}</span>
-            <button onClick={switchStaff} className="text-xs font-medium text-brand underline">
-              Not you? Switch
-            </button>
-          </div>
+          <select
+            value={isOther ? OTHER : staffList.includes(soldBy) ? soldBy : soldBy ? OTHER : ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === OTHER) { setIsOther(true); setSoldBy(""); }
+              else { setIsOther(false); setSoldBy(v); }
+            }}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base outline-none focus:border-brand"
+          >
+            <option value="">Select staff…</option>
+            {staffList.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+            <option value={OTHER}>Others…</option>
+          </select>
+          {(isOther || (soldBy && !staffList.includes(soldBy))) && (
+            <input
+              value={soldBy}
+              onChange={(e) => setSoldBy(e.target.value)}
+              placeholder="Type the name"
+              autoCapitalize="words"
+              className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-base outline-none focus:border-brand"
+            />
+          )}
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Freebie given</p>
           <div className="grid grid-cols-2 gap-2">
