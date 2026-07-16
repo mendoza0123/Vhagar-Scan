@@ -59,7 +59,7 @@ function payFlags(pm: string | null): { cash: boolean; card: boolean; upi: boole
   return { cash, card, upi, other };
 }
 
-const MIN_ROWS = 5; // total item+freebie+blank rows — kept low so the bill fits ONE page
+const MIN_ROWS = 4; // total item+freebie+blank rows — kept low so the bill fits ONE page (incl. email row + up to 2 freebies)
 
 export default async function BillPage({ params }: { params: { id: string } }) {
   const id = Number(params.id);
