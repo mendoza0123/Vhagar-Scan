@@ -1,26 +1,34 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PIN_KEY, STAFF_KEY } from "@/lib/staff";
 
-// Same key + endpoint as the Admin gate — so one PIN unlocks the whole site
+// Same PIN + endpoint as the Admin gate — so one PIN unlocks the whole site
 // (and Admin), and it's the same booth PIN (ADMIN_PIN). Session-scoped: re-asks
 // when the tab/session is closed, persists across refreshes and navigation.
-const PIN_KEY = "vhagar.admin.pin";
-
+//
+// The PIN is shared by the whole booth, so on its own it can't say WHO is
+// selling. The name is therefore mandatory too: it becomes the operator's ID
+// for the session and is stamped onto their sales (sold_by) and rack moves.
 export function SiteGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<"checking" | "locked" | "open">("checking");
+  const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    setState(sessionStorage.getItem(PIN_KEY) ? "open" : "locked");
+    // Both are required — a session that predates the name still gets asked.
+    const open = sessionStorage.getItem(PIN_KEY) && sessionStorage.getItem(STAFF_KEY);
+    setState(open ? "open" : "locked");
   }, []);
 
+  const ready = name.trim().length >= 2 && pin.length > 0;
+
   const unlock = async () => {
-    if (!pin) return;
+    if (!ready) return;
     setBusy(true);
-    setErr(false);
+    setErr(null);
     try {
       const res = await fetch("/api/admin/verify", {
         method: "POST",
@@ -29,12 +37,13 @@ export function SiteGate({ children }: { children: React.ReactNode }) {
       });
       if (res.ok) {
         sessionStorage.setItem(PIN_KEY, pin);
+        sessionStorage.setItem(STAFF_KEY, name.trim());
         setState("open");
       } else {
-        setErr(true);
+        setErr("Wrong PIN.");
       }
     } catch {
-      setErr(true);
+      setErr("No signal — try again.");
     } finally {
       setBusy(false);
     }
@@ -52,23 +61,41 @@ export function SiteGate({ children }: { children: React.ReactNode }) {
               <p className="mt-3 text-sm text-slate-400">Loading…</p>
             ) : (
               <>
-                <p className="mb-4 mt-2 text-sm text-slate-500">Enter the booth PIN to continue</p>
+                <p className="mb-4 mt-2 text-sm text-slate-500">
+                  Your name and the booth PIN to continue
+                </p>
+                <input
+                  value={name}
+                  autoFocus
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && unlock()}
+                  placeholder="Your name"
+                  autoCapitalize="words"
+                  autoComplete="off"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-center text-lg outline-none focus:border-brand"
+                />
                 <input
                   value={pin}
-                  autoFocus
                   onChange={(e) => setPin(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && unlock()}
                   type="password"
                   inputMode="numeric"
                   placeholder="••••"
-                  className={`w-full rounded-xl border px-4 py-3 text-center text-2xl tracking-widest outline-none focus:border-brand ${
+                  className={`mt-2 w-full rounded-xl border px-4 py-3 text-center text-2xl tracking-widest outline-none focus:border-brand ${
                     err ? "border-rose-400" : "border-slate-300"
                   }`}
                 />
-                {err && <p className="mt-2 text-sm text-rose-600">Wrong PIN.</p>}
-                <button onClick={unlock} disabled={busy || !pin} className="btn btn-primary mt-4 w-full disabled:opacity-50">
+                {err && <p className="mt-2 text-sm text-rose-600">{err}</p>}
+                <button
+                  onClick={unlock}
+                  disabled={busy || !ready}
+                  className="btn btn-primary mt-4 w-full disabled:opacity-50"
+                >
                   {busy ? "Checking…" : "Unlock"}
                 </button>
+                <p className="mt-3 text-xs text-slate-400">
+                  Your sales are recorded under this name.
+                </p>
               </>
             )}
           </div>

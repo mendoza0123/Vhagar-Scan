@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { money } from "@/lib/format";
+import { staffName, switchStaff } from "@/lib/staff";
 
 // Scanner is client-only (camera). ssr:false keeps html5-qrcode off the server.
 const Scanner = dynamic(() => import("./Scanner"), { ssr: false });
@@ -43,13 +44,10 @@ type Receipt = {
 
 const CART_KEY = "vhagar.cart.v2";
 const DISCOUNT_KEY = "vhagar.discount.v2";
-const SOLDBY_KEY = "vhagar.soldBy.v1";
 
 // Freebie options — each can be given in a quantity via +/- on the sell screen.
 const FREEBIE_OPTIONS = ["Cap", "Key Chain"] as const;
 const NO_FREEBIES: Record<string, number> = { Cap: 0, "Key Chain": 0 };
-// Booth staff for the "Sold by" dropdown. TODO: swap for the real names.
-const SOLD_BY_OPTIONS = ["Aditya", "Naushi", "Angel"];
 
 // ---- per-line blocking reason (null = ok to bill) ----
 function lineBlock(l: Line): string | null {
@@ -142,8 +140,9 @@ export default function SellPage() {
       if (c) setCart(JSON.parse(c));
       const d = localStorage.getItem(DISCOUNT_KEY);
       if (d) setDiscount(d);
-      const s = localStorage.getItem(SOLDBY_KEY);
-      if (s) setSoldBy(s);
+      // Identity comes from the PIN gate, not a picker — sessionStorage is
+      // client-only, so it has to be read here rather than in useState.
+      setSoldBy(staffName());
     } catch {
       /* ignore corrupt storage */
     }
@@ -157,9 +156,6 @@ export default function SellPage() {
   useEffect(() => {
     if (hydrated) localStorage.setItem(DISCOUNT_KEY, discount);
   }, [discount, hydrated]);
-  useEffect(() => {
-    if (hydrated) localStorage.setItem(SOLDBY_KEY, soldBy);
-  }, [soldBy, hydrated]);
 
   const showToast = useCallback((msg: string, tone: "ok" | "warn" = "ok") => {
     setToast({ msg, tone });
@@ -590,16 +586,14 @@ export default function SellPage() {
           )}
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Sold by</p>
-          <select
-            value={soldBy}
-            onChange={(e) => setSoldBy(e.target.value)}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base outline-none focus:border-brand"
-          >
-            <option value="">Select staff…</option>
-            {SOLD_BY_OPTIONS.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          {/* Identity is whoever unlocked the booth — not a picker, so a sale
+              can't be attributed to someone else by tapping a dropdown. */}
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5">
+            <span className="font-semibold">{soldBy || "—"}</span>
+            <button onClick={switchStaff} className="text-xs font-medium text-brand underline">
+              Not you? Switch
+            </button>
+          </div>
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Freebie given</p>
           <div className="grid grid-cols-2 gap-2">

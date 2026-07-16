@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { staffName } from "@/lib/staff";
 
 const Scanner = dynamic(() => import("../sell/Scanner"), { ssr: false });
 
@@ -128,7 +129,10 @@ export default function RackPage() {
       const res = await fetch("/api/rack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: lines.map((l) => ({ sku: l.sku, qty: l.qty })) }),
+        body: JSON.stringify({
+          items: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
+          by: staffName(), // who unpacked it
+        }),
       });
       const d = await res.json();
       if (!res.ok) {
