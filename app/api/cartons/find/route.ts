@@ -49,6 +49,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ scanned: sku, style_code, name, sizes });
   }
 
+  // ---- browse mode: everything indexed (rack + boxes), for the no-typing
+  //      card list on /find. ~a few hundred small rows; fine on the hotspot.
+  if (req.nextUrl.searchParams.get("browse")) {
+    const results = await sql`
+      SELECT carton_id, location, variant_sku, name, size, qty, status = 'Rack' AS is_rack
+      FROM v_carton_contents
+      WHERE status IN ('Packed', 'Rack')
+      ORDER BY name, size
+      LIMIT 1500`;
+    return NextResponse.json({ results });
+  }
+
   // ---- text mode: unchanged, except the rack is a place too ----
   const q = req.nextUrl.searchParams.get("q")?.trim() || "";
   if (q.length < 2) return NextResponse.json({ results: [] });

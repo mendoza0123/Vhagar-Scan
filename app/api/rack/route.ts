@@ -4,11 +4,12 @@ import { sql } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// POST /api/rack — bulk location moves, both directions.
-// Body: { items:[{sku,qty}], by?, action?: "move" | "return" }
-//   move   (default): carton -> Rack           (rack_move)
-//   return          : Rack -> the box each SKU last came out of (rack_return)
-// LOCATION changes only: neither touches qty_on_hand (only a sale does).
+// POST /api/rack — location moves, all directions.
+//   { items:[{sku,qty}], by?, action:"move" }    carton -> Rack     (rack_move)
+//   { items:[{sku,qty}], by?, action:"return" }  Rack -> origin box (rack_return)
+//   { sku, qty, target?, by?, action:"adjust" }  Rack -> a CHOSEN box, or off the
+//                                                index entirely when target is null
+// LOCATION changes only: none of these touch qty_on_hand (only a sale does).
 export async function POST(req: NextRequest) {
   noStore();
   let body: any;
@@ -16,6 +17,23 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "bad_json" }, { status: 400 });
+  }
+
+  if (body?.action === "adjust") {
+    const sku = body?.sku?.toString().trim().toUpperCase();
+    const qty = Math.trunc(Number(body?.qty));
+    const target = body?.target?.toString().trim() || null;
+    const adjBy = body?.by?.toString().trim() || null;
+    if (!sku) return NextResponse.json({ error: "missing_sku" }, { status: 400 });
+    if (!Number.isFinite(qty) || qty < 1) return NextResponse.json({ error: "bad_qty" }, { status: 400 });
+    try {
+      const rows = await sql`SELECT rack_adjust(${sku}, ${qty}, ${adjBy}, ${target}) AS r`;
+      return NextResponse.json(rows[0].r); // { taken, target }
+    } catch (err: any) {
+      // rack_adjust raises human-readable messages ("X is not on the rack.")
+      const message = String(err?.message || "Could not update.").replace(/^.*?:\s*/, "").trim();
+      return NextResponse.json({ error: "adjust_failed", message }, { status: 400 });
+    }
   }
 
   const raw: any[] = Array.isArray(body?.items) ? body.items : [];
