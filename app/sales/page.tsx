@@ -22,11 +22,9 @@ const REFRESH_MS = 8000;
 
 export default function SalesPage() {
   const [scope, setScope] = useState<"today" | "all">("today");
-  const [data, setData] = useState<{ sales: SaleRow[]; grandTotal: number; count: number }>({
-    sales: [],
-    grandTotal: 0,
-    count: 0,
-  });
+  const [data, setData] = useState<{
+    sales: SaleRow[]; grandTotal: number; count: number; voidCount?: number; voidValue?: number;
+  }>({ sales: [], grandTotal: 0, count: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -104,6 +102,11 @@ export default function SalesPage() {
               {data.count} bill{data.count === 1 ? "" : "s"}
             </p>
             <p>{pieces} items</p>
+            {!!data.voidCount && (
+              <p className="text-rose-600">
+                {data.voidCount} void · {money(data.voidValue || 0)}
+              </p>
+            )}
             <p className={error ? "text-rose-500" : "text-emerald-600"}>
               {error ? "⚠ offline" : "● live"}
             </p>
@@ -131,10 +134,21 @@ export default function SalesPage() {
             <li key={s.id}>
               <Link
                 href={`/sale/${s.id}`}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm active:bg-slate-50"
+                className={`flex items-center justify-between gap-3 rounded-2xl border p-3 shadow-sm active:bg-slate-50 ${
+                  s.status === "void" ? "border-rose-200 bg-rose-50/60" : "border-slate-200 bg-white"
+                }`}
               >
                 <div className="min-w-0">
-                  <p className="font-semibold">{s.bill_no || `#${s.id}`}</p>
+                  <p className="flex items-center gap-2 font-semibold">
+                    <span className={s.status === "void" ? "text-slate-500 line-through" : ""}>
+                      {s.bill_no || `#${s.id}`}
+                    </span>
+                    {s.status === "void" && (
+                      <span className="rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                        Void
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-slate-400">
                     {billDateTime(s.created_at)} · {s.item_count} item
                     {s.item_count === 1 ? "" : "s"}
@@ -142,7 +156,9 @@ export default function SalesPage() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold">{money(s.total)}</p>
+                  <p className={`font-bold ${s.status === "void" ? "text-slate-400 line-through" : ""}`}>
+                    {money(s.total)}
+                  </p>
                   {s.discount > 0 && (
                     <p className="text-xs text-slate-400">−{money(s.discount)}</p>
                   )}

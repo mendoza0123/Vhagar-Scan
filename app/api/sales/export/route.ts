@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
         WHERE (s.created_at AT TIME ZONE 'Asia/Kolkata')::date
               = (now() AT TIME ZONE 'Asia/Kolkata')::date
+          AND NOT s.is_test
         ORDER BY s.id DESC, si.id`
     : await sql`
         SELECT s.id, s.bill_no, s.created_at, s.sold_by, s.payment_method, s.channel, s.freebie,
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
                si.unit_price::float8 AS unit_price, si.qty,
                si.line_total::float8 AS line_total
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
+        WHERE NOT s.is_test
         ORDER BY s.id DESC, si.id`;
 
   const header = [

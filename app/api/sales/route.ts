@@ -64,6 +64,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "needs_price", sku: it.sku }, { status: 400 });
   }
 
+  // A rehearsal bill (TEST FABRIC only) is not business: it gets its own
+  // VH-2026-TestNN series and is kept out of the Sales log + CSV, so staff can
+  // practise mid-exhibition without polluting takings.
+  const isTest = items.every((i) => i.sku.startsWith("VH-TEST"));
+
   // ---- atomic checkout ----
   try {
     const payload = JSON.stringify(items);
@@ -79,7 +84,13 @@ export async function POST(req: NextRequest) {
         ${note}
       ) AS id`;
     const id = Number(rows[0].id);
-    const bill_no = billNo(id);
+    // nextval, not a row count — two counters billing at once must never be
+    // handed the same number. Keeps the real series gapless despite test bills.
+    const [{ n }] = await sql`
+      SELECT nextval(${isTest ? "sales_test_seq" : "sales_bill_seq"}::regclass)::int AS n`;
+    const bill_no = isTest
+      ? `VH-2026-Test${String(n).padStart(2, "0")}`
+      : `VH-2026-${String(n).padStart(4, "0")}`;
 
     // Deduct the sold pieces from whichever carton(s) hold them, so the box
     // index tracks reality. Best-effort: a piece from the display rack simply
@@ -93,7 +104,7 @@ export async function POST(req: NextRequest) {
     // Stamp a human-friendly bill number + address (delivery_method) — best
     // effort; both are derivable/optional so a failure here never blocks the sale.
     try {
-      await sql`UPDATE sales SET bill_no = ${bill_no}, delivery_method = ${address}, channel = ${channel}, freebie = ${freebie}, customer_email = ${customerEmail} WHERE id = ${id}`;
+      await sql`UPDATE sales SET bill_no = ${bill_no}, delivery_method = ${address}, channel = ${channel}, freebie = ${freebie}, customer_email = ${customerEmail}, is_test = ${isTest} WHERE id = ${id}`;
     } catch {
       /* ignore — bill_no is derivable from id at read time */
     }
@@ -134,6 +145,9 @@ export async function GET(req: NextRequest) {
   noStore();
   const date = req.nextUrl.searchParams.get("date");
 
+  // Voided bills STAY in the log (marked void) — a bill that vanishes is a bill
+  // nobody can account for. They're excluded from the totals below.
+  // Test bills never appear at all.
   const todayOnly = date === "today";
   const rows = todayOnly
     ? await sql`
@@ -144,7 +158,7 @@ export async function GET(req: NextRequest) {
         FROM sales s
         WHERE (s.created_at AT TIME ZONE 'Asia/Kolkata')::date
               = (now() AT TIME ZONE 'Asia/Kolkata')::date
-          AND s.status = 'completed'
+          AND NOT s.is_test
         ORDER BY s.id DESC`
     : await sql`
         SELECT s.id, s.bill_no, s.subtotal::float8 AS subtotal,
@@ -152,10 +166,18 @@ export async function GET(req: NextRequest) {
                s.payment_method, s.customer_name, s.sold_by, s.status, s.created_at,
                (SELECT count(*)::int FROM sale_items si WHERE si.sale_id = s.id) AS item_count
         FROM sales s
-        WHERE s.status = 'completed'
+        WHERE NOT s.is_test
         ORDER BY s.id DESC
         LIMIT 200`;
 
-  const grandTotal = rows.reduce((sum: number, r: any) => sum + Number(r.total), 0);
-  return NextResponse.json({ sales: rows, grandTotal, count: rows.length });
+  const live = rows.filter((r: any) => r.status === "completed");
+  const grandTotal = live.reduce((sum: number, r: any) => sum + Number(r.total), 0);
+  const voided = rows.filter((r: any) => r.status === "void");
+  return NextResponse.json({
+    sales: rows,
+    grandTotal,
+    count: live.length,
+    voidCount: voided.length,
+    voidValue: voided.reduce((sum: number, r: any) => sum + Number(r.total), 0),
+  });
 }
