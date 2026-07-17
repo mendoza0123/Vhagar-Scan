@@ -23,6 +23,16 @@ FROM (VALUES
 ) AS x(style_code, price)
 WHERE v.style_code = x.style_code;
 
+-- 1b. The three legacy PLAY styles were seeded as "always ask the price"
+--     (bargaining pieces). They are on the booth rack with 17 pcs of stock and
+--     would block at the till, so per the owner they now pre-fill at 999. Price
+--     stays editable per sale, so bargaining still works — it just no longer stops
+--     the counter. (VH-KN100 keeps prompting; it has no rack stock.)
+UPDATE variants v SET price = 999, needs_price = FALSE
+WHERE v.style_code IN ('VH-PLV5197A', 'VH-X5C28A', 'VH-Y5A183B');
+UPDATE products SET base_price = 999
+WHERE style_code IN ('VH-PLV5197A', 'VH-X5C28A', 'VH-Y5A183B');
+
 -- keep the product header in step with its variants
 UPDATE products p SET base_price = x.price
 FROM (VALUES
