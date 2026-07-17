@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
 import { billNo } from "@/lib/format";
+import { normalizePhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,15 @@ export async function POST(req: NextRequest) {
   const note: string | null = body?.note?.toString().trim() || null;
   const customerName: string | null =
     body?.customer?.name?.toString().trim() || null;
-  const customerPhone: string | null =
-    body?.customer?.phone?.toString().trim() || null;
+  // Server-side guard, not just UI: a sale needs a name and a REAL mobile —
+  // it's the customer's ID on the bill and where the bill gets WhatsApped.
+  const customerPhone = normalizePhone(body?.customer?.phone?.toString());
+  if (!customerName || customerName.length < 2)
+    return NextResponse.json(
+      { error: "name_required", message: "Enter the customer's name." }, { status: 400 });
+  if (!customerPhone)
+    return NextResponse.json(
+      { error: "invalid_phone", message: "Enter a valid 10-digit mobile number." }, { status: 400 });
   const address: string | null = body?.customer?.address?.toString().trim() || null;
   const customerEmail: string | null = body?.customer?.email?.toString().trim() || null;
   const channel: string | null = body?.channel?.toString().trim() || null;

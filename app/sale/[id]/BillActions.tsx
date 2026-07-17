@@ -3,6 +3,24 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { normalizePhone } from "@/lib/phone";
+
+const FREEBIE_NAMES = ["Cap", "Key Chain"] as const;
+
+// "Cap x2 + Key Chain x1" (or legacy "Cap" / "Kitchen") → counts per freebie.
+function parseFreebieCounts(s: string | null): Record<string, number> {
+  const counts: Record<string, number> = { Cap: 0, "Key Chain": 0 };
+  for (const tok of (s || "").split("+")) {
+    const m = tok.trim().match(/^(.*?)(?:\s*x\s*(\d+))?$/i);
+    if (!m || !m[1]) continue;
+    const raw = m[1].trim().toLowerCase();
+    const name = raw === "cap" ? "Cap" : raw === "key chain" || raw === "keychain" || raw === "kitchen" ? "Key Chain" : null;
+    if (name) counts[name] += Math.max(1, parseInt(m[2] || "1", 10));
+  }
+  return counts;
+}
+const freebieString = (c: Record<string, number>) =>
+  FREEBIE_NAMES.filter((n) => (c[n] || 0) > 0).map((n) => `${n} x${c[n]}`).join(" + ") || null;
 
 type Props = {
   id: number;
@@ -15,6 +33,7 @@ type Props = {
   address: string | null;
   paymentMethod: string;
   note: string | null;
+  freebie: string | null;
 };
 
 const PM_LABEL: Record<string, string> = { cash: "Cash", card: "Card", upi: "UPI", other: "Other" };
@@ -32,7 +51,13 @@ export default function BillActions(p: Props) {
     payments: (p.paymentMethod || "cash").toLowerCase().split(/[^a-z]+/)
       .filter((t, i, a) => ["cash", "card", "upi", "other"].includes(t) && a.indexOf(t) === i),
     note: p.note || "",
+    // customer came back for a cap/keychain after billing? edit it in, so
+    // there's a record and it prints on the bill
+    freebies: parseFreebieCounts(p.freebie),
   }));
+  const editPhoneOk = normalizePhone(f.phone) !== null;
+  const bumpFreebie = (n: string, d: number) =>
+    setF((cur) => ({ ...cur, freebies: { ...cur.freebies, [n]: Math.max(0, (cur.freebies[n] || 0) + d) } }));
   const togglePayment = (pm: string) =>
     setF((cur) => {
       const next = cur.payments.includes(pm) ? cur.payments.filter((x) => x !== pm) : [...cur.payments, pm];
@@ -138,10 +163,15 @@ export default function BillActions(p: Props) {
   };
 
   const saveEdit = async () => {
+    if (!editPhoneOk) return; // Save is disabled too — belt and braces
     setBusy("edit");
     const res = await fetch(`/api/sales/${p.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_name: f.name, customer_phone: f.phone, customer_email: f.email, address: f.address, payment_method: f.payments.join(" + "), note: f.note }),
+      body: JSON.stringify({
+        customer_name: f.name, customer_phone: normalizePhone(f.phone), customer_email: f.email,
+        address: f.address, payment_method: f.payments.join(" + "), note: f.note,
+        freebie: freebieString(f.freebies),
+      }),
     });
     setBusy(null);
     if (res.ok) { setEditing(false); router.refresh(); }
@@ -200,7 +230,10 @@ export default function BillActions(p: Props) {
             <p className="text-xs text-slate-400">Items &amp; quantities can’t change here — void &amp; re-sell for that.</p>
             <div className="mt-3 flex flex-col gap-2">
               <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Name" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
-              <input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} inputMode="tel" placeholder="Mobile no." className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
+              <input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} inputMode="tel" placeholder="Mobile no. (10 digits)" className={`rounded-xl border px-4 py-2.5 outline-none focus:border-brand ${editPhoneOk ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
+              {!editPhoneOk && (
+                <p className="text-xs font-medium text-amber-700">Valid 10-digit mobile needed (starts 6–9).</p>
+              )}
               <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} type="email" inputMode="email" autoCapitalize="off" placeholder="Email" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
               <input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Address" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
               <div className="grid grid-cols-4 gap-2">
@@ -211,10 +244,28 @@ export default function BillActions(p: Props) {
                 ))}
               </div>
               <input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="Notes" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
+
+              <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Freebies given</p>
+              <div className="grid grid-cols-2 gap-2">
+                {FREEBIE_NAMES.map((n) => {
+                  const c = f.freebies[n] || 0;
+                  return (
+                    <div key={n} className={`flex items-center justify-between rounded-xl border px-3 py-2 ${c > 0 ? "border-brand bg-brand/5" : "border-slate-200 bg-white"}`}>
+                      <span className="text-sm font-medium">{n}</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => bumpFreebie(n, -1)} disabled={c === 0} className="h-8 w-8 rounded-lg border border-slate-300 text-lg font-bold leading-none active:bg-slate-100 disabled:opacity-30">−</button>
+                        <span className="w-5 text-center text-base font-semibold tabular-nums">{c}</span>
+                        <button onClick={() => bumpFreebie(n, 1)} className="h-8 w-8 rounded-lg border border-slate-300 text-lg font-bold leading-none active:bg-slate-100">+</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-slate-400">Freebies print on the bill as FREE lines.</p>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button onClick={() => setEditing(false)} className="btn btn-ghost">Cancel</button>
-              <button onClick={saveEdit} disabled={busy === "edit"} className="btn btn-primary">{busy === "edit" ? "Saving…" : "Save"}</button>
+              <button onClick={saveEdit} disabled={busy === "edit" || !editPhoneOk} className="btn btn-primary disabled:opacity-50">{busy === "edit" ? "Saving…" : "Save"}</button>
             </div>
           </div>
         </div>

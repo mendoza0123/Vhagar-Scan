@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { money } from "@/lib/format";
+import { normalizePhone } from "@/lib/phone";
 
 // Scanner is client-only (camera). ssr:false keeps html5-qrcode off the server.
 const Scanner = dynamic(() => import("./Scanner"), { ssr: false });
@@ -320,7 +321,11 @@ export default function SellPage() {
   const discountNum = Math.min(Math.max(0, Number(discount) || 0), subtotal);
   const total = Math.max(0, subtotal - discountNum);
   const blockingLines = cart.filter((l) => lineBlock(l) !== null);
-  const customerOk = name.trim().length > 0 && phone.trim().length > 0; // Name + Mobile are mandatory
+  // Name + a REAL mobile are mandatory — 10 digits starting 6-9 (+91/0 ok),
+  // so a 9-digit or 1-digit typo can't get billed.
+  const phoneOk = normalizePhone(phone) !== null;
+  const nameOk = name.trim().length >= 2;
+  const customerOk = nameOk && phoneOk;
   const canCheckout =
     cart.length > 0 && blockingLines.length === 0 && customerOk && status === "idle";
 
@@ -362,7 +367,7 @@ export default function SellPage() {
       paymentMethod: payments.join(" + "),
       channel: saleChannel,
       freebie: freebieStr,
-      customer: { name: name.trim() || null, phone: phone.trim() || null, email: email.trim() || null, address: address.trim() || null },
+      customer: { name: name.trim() || null, phone: normalizePhone(phone), email: email.trim() || null, address: address.trim() || null },
     };
 
     try {
@@ -674,8 +679,13 @@ export default function SellPage() {
           </div>
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${name.trim() ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no. (required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${phone.trim() ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${nameOk ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no. (10 digits, required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${phoneOk ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
+          {phone.trim() !== "" && !phoneOk && (
+            <p className="text-xs font-medium text-amber-700">
+              That&apos;s not a valid mobile — 10 digits, starting 6–9.
+            </p>
+          )}
           <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (optional)" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" autoCapitalize="off" placeholder="Email (optional — to email the bill)" className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand" />
           <div className="grid grid-cols-4 gap-2 pt-1">
@@ -749,8 +759,10 @@ export default function SellPage() {
               ? "Checking stock…"
               : blockingLines.length > 0
               ? `Fix ${blockingLines.length} item${blockingLines.length > 1 ? "s" : ""}`
-              : !customerOk
+              : !nameOk
               ? "Enter name & mobile no."
+              : !phoneOk
+              ? "Enter a valid 10-digit mobile"
               : `Review & charge ${money(total)}`}
           </button>
         </div>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
 import { billNo } from "@/lib/format";
+import { normalizePhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
@@ -57,10 +58,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const name = body?.customer_name?.toString().trim() || null;
-  const phone = body?.customer_phone?.toString().trim() || null;
+  // mobile is mandatory on every bill — reject an edit that would break it
+  const phone = normalizePhone(body?.customer_phone?.toString());
+  if (!phone)
+    return NextResponse.json(
+      { error: "invalid_phone", message: "Enter a valid 10-digit mobile number." }, { status: 400 });
   const email = body?.customer_email?.toString().trim() || null;
   const address = body?.address?.toString().trim() || null;
   const note = body?.note?.toString().trim() || null;
+  // freebies can be granted after the sale (customer came back for the cap)
+  const freebie = body?.freebie?.toString().trim() || null;
   // payment can be split ("cash + upi") — keep known tokens only
   const pmTokens = (body?.payment_method || "").toString().toLowerCase().split(/[^a-z]+/)
     .filter((t: string, i: number, a: string[]) => ["cash", "card", "upi", "other"].includes(t) && a.indexOf(t) === i);
@@ -68,7 +75,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   await sql`UPDATE sales SET
       customer_name = ${name}, customer_phone = ${phone}, customer_email = ${email},
-      delivery_method = ${address}, note = ${note}, payment_method = COALESCE(${pm}, payment_method)
+      delivery_method = ${address}, note = ${note}, freebie = ${freebie},
+      payment_method = COALESCE(${pm}, payment_method)
     WHERE id = ${id} AND status = 'completed'`;
   return NextResponse.json({ ok: true });
 }
