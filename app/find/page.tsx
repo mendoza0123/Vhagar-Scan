@@ -14,6 +14,23 @@ type Row = {
   name: string; size: string; qty: number; is_rack: boolean;
 };
 
+const SIZE_SORT = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "4XL"];
+const sizeRank = (s: string) => {
+  const i = SIZE_SORT.indexOf(s.toUpperCase());
+  return i === -1 ? 99 : i;
+};
+
+// "EARTH PLAIN 06" → family EARTH PLAIN, design 06. The family is the leading
+// words with no digits; everything from the first digit-bearing token on is the
+// design code. ("PLAY Y5A183B" → PLAY / Y5A183B.)
+function splitFamily(name: string): { family: string; design: string } {
+  const tokens = name.trim().split(/\s+/);
+  let i = 0;
+  while (i < tokens.length && !/\d/.test(tokens[i])) i++;
+  const family = tokens.slice(0, i).join(" ") || name;
+  return { family: family.toUpperCase(), design: tokens.slice(i).join(" ") || "—" };
+}
+
 // Where is it? Scan the hanging display piece → the whole style, per size,
 // and whether each size is on the Rack or still boxed.
 export default function FindPage() {
@@ -24,6 +41,9 @@ export default function FindPage() {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [place, setPlace] = useState<"all" | "rack" | "box">("all");
+  const [sizeFil, setSizeFil] = useState<string>("all");
+  const [openFam, setOpenFam] = useState<string | null>(null);
   const lastScan = useRef<{ code: string; at: number }>({ code: "", at: 0 });
 
   const lookupSku = useCallback(async (raw: string) => {
@@ -68,11 +88,30 @@ export default function FindPage() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const groups = useMemo(() => {
-    const m = new Map<string, Row[]>();
-    for (const r of rows) { const a = m.get(r.name) || []; a.push(r); m.set(r.name, a); }
-    return Array.from(m.entries());
-  }, [rows]);
+  const sizes = useMemo(
+    () => [...new Set(rows.map((r) => r.size.toUpperCase()))].sort((a, b) => sizeRank(a) - sizeRank(b)),
+    [rows]
+  );
+
+  // filters → family cards → designs inside each card
+  const families = useMemo(() => {
+    const filtered = rows.filter(
+      (r) =>
+        (place === "all" || (place === "rack" ? r.is_rack : !r.is_rack)) &&
+        (sizeFil === "all" || r.size.toUpperCase() === sizeFil)
+    );
+    const fams = new Map<string, { total: number; designs: Map<string, Row[]> }>();
+    for (const r of filtered) {
+      const { family, design } = splitFamily(r.name);
+      const f = fams.get(family) || { total: 0, designs: new Map() };
+      f.total += r.qty;
+      const d = f.designs.get(design) || [];
+      d.push(r);
+      f.designs.set(design, d);
+      fams.set(family, f);
+    }
+    return Array.from(fams.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [rows, place, sizeFil]);
 
   return (
     <main className="flex min-h-screen flex-col gap-4 p-4">
@@ -156,32 +195,101 @@ export default function FindPage() {
         </div>
       )}
 
-      {/* ---- text search results ---- */}
-      {groups.map(([name, list]) => (
-        <div key={name} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <p className="font-semibold">{name}</p>
-          <ul className="mt-1 divide-y divide-slate-100">
-            {list.map((r) => (
-              <li key={`${r.carton_id}-${r.variant_sku}`} className="flex items-center gap-3 py-2 text-sm">
-                <span className="w-10 shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-center font-semibold">{r.size}</span>
-                <span className="min-w-0 flex-1">
-                  {r.is_rack ? (
-                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-800">
-                      in Rack
-                    </span>
-                  ) : (
-                    <>
-                      <span className="block font-semibold text-brand">{r.carton_id}</span>
-                      {r.location && <span className="block text-xs text-slate-400">📍 {r.location}</span>}
-                    </>
-                  )}
-                </span>
-                <span className="shrink-0 font-semibold tabular-nums">×{r.qty}</span>
-              </li>
+      {/* ---- filters (only when there are results to filter) ---- */}
+      {rows.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-3 gap-2">
+            {([["all", "Everywhere"], ["rack", "On Rack"], ["box", "In cartons"]] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setPlace(v)}
+                className={`rounded-xl border px-2 py-2 text-sm font-medium ${place === v ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+              >
+                {label}
+              </button>
             ))}
-          </ul>
+          </div>
+          {sizes.length > 1 && (
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setSizeFil("all")}
+                className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${sizeFil === "all" ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-500"}`}
+              >
+                All sizes
+              </button>
+              {sizes.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSizeFil(sizeFil === s ? "all" : s)}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${sizeFil === s ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-500"}`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      ))}
+      )}
+
+      {/* ---- product cards: family → tap → designs → sizes & where ---- */}
+      {families.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          {families.map(([fam, f]) => {
+            const open = openFam === fam;
+            return (
+              <div key={fam} className={open ? "col-span-2" : ""}>
+                <button
+                  onClick={() => setOpenFam(open ? null : fam)}
+                  className={`w-full rounded-2xl border p-3 text-left shadow-sm ${open ? "border-brand bg-brand/5" : "border-slate-200 bg-white"}`}
+                >
+                  <p className="truncate font-bold">{fam}</p>
+                  <p className="text-xs text-slate-500">
+                    {f.designs.size} design{f.designs.size === 1 ? "" : "s"} · {f.total} pc{f.total === 1 ? "" : "s"}
+                    <span className="float-right">{open ? "▲" : "▼"}</span>
+                  </p>
+                </button>
+                {open && (
+                  <div className="mt-1 flex flex-col gap-1.5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                    {Array.from(f.designs.entries()).map(([design, list]) => (
+                      <div key={design} className="rounded-xl bg-slate-50 p-2">
+                        <p className="text-sm font-semibold">
+                          {fam} <span className="text-brand">{design}</span>
+                        </p>
+                        <ul className="mt-1 divide-y divide-slate-100">
+                          {[...list].sort((a, b) => sizeRank(a.size) - sizeRank(b.size)).map((r) => (
+                            <li key={`${r.carton_id}-${r.variant_sku}`} className="flex items-center gap-3 py-1.5 text-sm">
+                              <span className="w-10 shrink-0 rounded-lg bg-white px-2 py-0.5 text-center font-semibold">{r.size}</span>
+                              <span className="min-w-0 flex-1">
+                                {r.is_rack ? (
+                                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-800">
+                                    in Rack
+                                  </span>
+                                ) : (
+                                  <span className="font-semibold text-brand">
+                                    {r.carton_id}
+                                    {r.location && <span className="ml-1 text-xs font-normal text-slate-400">📍 {r.location}</span>}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="shrink-0 font-semibold tabular-nums">×{r.qty}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {searched && !searching && rows.length > 0 && families.length === 0 && (
+        <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
+          Nothing matches these filters.
+        </p>
+      )}
 
       {searched && !searching && rows.length === 0 && (
         <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">

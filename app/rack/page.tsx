@@ -40,12 +40,18 @@ function feedback(ok: boolean) {
 // Unpack a carton onto the rack: rapid-scan every piece, then Move to Rack.
 // Pieces of the same style+size share ONE QR, so scanning the same tag twice is
 // two real pieces — the tally counts every presentation on purpose.
+type MoveResult = { moved: number; from_cartons: number; capped: number };
+type ReturnResult = { returned: number; skipped: number; details: { sku: string; carton: string; qty: number }[] };
+
 export default function RackPage() {
   const [scanning, setScanning] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ moved: number; from_cartons: number; capped: number } | null>(null);
+  // Which way pieces flow: unpack a box onto the rack, or put rack pieces back
+  // into the box they came out of (wrong pull, closing down a display, etc.)
+  const [mode, setMode] = useState<"rack" | "return">("rack");
+  const [done, setDone] = useState<{ kind: "rack"; r: MoveResult } | { kind: "return"; r: ReturnResult } | null>(null);
 
   const scanState = useRef<Map<string, { lastSeen: number; armed: boolean }>>(new Map());
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -131,7 +137,8 @@ export default function RackPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
-          by: staffName(), // who unpacked it
+          by: staffName(), // who did it
+          action: mode === "return" ? "return" : "move",
         }),
       });
       const d = await res.json();
@@ -141,7 +148,7 @@ export default function RackPage() {
         return; // keep the list so staff can retry on a flaky hotspot
       }
       feedback(true);
-      setDone(d);
+      setDone(mode === "return" ? { kind: "return", r: d } : { kind: "rack", r: d });
       setLines([]);
       scanState.current.clear();
     } catch {
@@ -160,9 +167,30 @@ export default function RackPage() {
         <Link href="/find" className="text-sm text-slate-500">Find</Link>
       </header>
 
+      {/* which way the pieces flow */}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={() => { setMode("rack"); setDone(null); }}
+          className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${mode === "rack" ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+        >
+          ➡ To Rack
+        </button>
+        <button
+          onClick={() => { setMode("return"); setDone(null); }}
+          className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${mode === "return" ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+        >
+          ↩ Back to carton
+        </button>
+      </div>
+
       <p className="rounded-xl bg-slate-100 p-3 text-xs leading-relaxed text-slate-500">
-        Unpacking a box? Scan every piece, then <b>Move to Rack</b>. This only changes
-        <b> where</b> a piece is — it never changes stock.
+        {mode === "rack" ? (
+          <>Unpacking a box? Scan every piece, then <b>Move to Rack</b>. This only changes
+          <b> where</b> a piece is — it never changes stock.</>
+        ) : (
+          <>Putting pieces back? Scan them — each goes back into <b>the box it came out of</b>.
+          Location only; stock never changes.</>
+        )}
       </p>
 
       <section>
@@ -178,14 +206,33 @@ export default function RackPage() {
         )}
       </section>
 
-      {done && (
+      {done && done.kind === "rack" && (
         <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
-          ✅ Moved <b>{done.moved}</b> piece{done.moved === 1 ? "" : "s"} to the rack
-          {done.from_cartons > 0 && <> · {done.from_cartons} taken out of carton(s)</>}
-          {done.capped > 0 && (
+          ✅ Moved <b>{done.r.moved}</b> piece{done.r.moved === 1 ? "" : "s"} to the rack
+          {done.r.from_cartons > 0 && <> · {done.r.from_cartons} taken out of carton(s)</>}
+          {done.r.capped > 0 && (
             <p className="mt-1 text-amber-800">
-              ⚠ {done.capped} skipped — that would put more on the rack than we own
+              ⚠ {done.r.capped} skipped — that would put more on the rack than we own
               (already moved, or scanned twice).
+            </p>
+          )}
+        </div>
+      )}
+      {done && done.kind === "return" && (
+        <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
+          ✅ Returned <b>{done.r.returned}</b> piece{done.r.returned === 1 ? "" : "s"} to carton
+          {done.r.details.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {done.r.details.map((d, i) => (
+                <li key={i}>
+                  {d.qty} × {d.sku} → <b className="font-mono">{d.carton}</b>
+                </li>
+              ))}
+            </ul>
+          )}
+          {done.r.skipped > 0 && (
+            <p className="mt-1 text-amber-800">
+              ⚠ {done.r.skipped} skipped — not on the rack, or no box to return to.
             </p>
           )}
         </div>
@@ -193,7 +240,7 @@ export default function RackPage() {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          To move ({total})
+          To {mode === "return" ? "return" : "move"} ({total})
         </h2>
         {lines.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
@@ -225,7 +272,7 @@ export default function RackPage() {
       {lines.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
           <button onClick={move} disabled={busy} className="btn btn-primary w-full py-4 text-lg disabled:opacity-50">
-            {busy ? "Moving…" : `➡ Move ${total} to Rack`}
+            {busy ? "Moving…" : mode === "return" ? `↩ Return ${total} to carton` : `➡ Move ${total} to Rack`}
           </button>
           <button onClick={() => { setLines([]); scanState.current.clear(); }} className="mt-2 w-full text-xs text-slate-400 underline">
             Clear list

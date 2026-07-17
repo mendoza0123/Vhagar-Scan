@@ -4,10 +4,11 @@ import { sql } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-// POST /api/rack — bulk "unpack onto the rack".
-// Body: { items:[{sku,qty}], by? }
-// Pieces move carton -> Rack. This is a LOCATION change only: rack_move never
-// touches qty_on_hand (only a sale does). Atomic — one plpgsql call.
+// POST /api/rack — bulk location moves, both directions.
+// Body: { items:[{sku,qty}], by?, action?: "move" | "return" }
+//   move   (default): carton -> Rack           (rack_move)
+//   return          : Rack -> the box each SKU last came out of (rack_return)
+// LOCATION changes only: neither touches qty_on_hand (only a sale does).
 export async function POST(req: NextRequest) {
   noStore();
   let body: any;
@@ -29,11 +30,14 @@ export async function POST(req: NextRequest) {
   if (items.length === 0) return NextResponse.json({ error: "empty" }, { status: 400 });
 
   const by: string | null = body?.by?.toString().trim() || null;
+  const returning = body?.action === "return";
 
   try {
-    const rows = await sql`SELECT rack_move(${JSON.stringify(items)}::jsonb, ${by}) AS r`;
-    // { moved, from_cartons, capped } — capped>0 means the index would have
-    // claimed more pieces than we own (usually a double-scan); surfaced, not hidden.
+    const rows = returning
+      ? await sql`SELECT rack_return(${JSON.stringify(items)}::jsonb, ${by}) AS r`
+      : await sql`SELECT rack_move(${JSON.stringify(items)}::jsonb, ${by}) AS r`;
+    // move:   { moved, from_cartons, capped } — capped>0 = would exceed stock (double-scan)
+    // return: { returned, skipped, details:[{sku,carton,qty}] }
     return NextResponse.json(rows[0].r);
   } catch (err: any) {
     const msg: string = err?.message || "";
