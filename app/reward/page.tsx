@@ -186,7 +186,7 @@ export default function RewardPage() {
 
           {phase === "ready" && (
             <p className="mt-10 text-center text-[11px] uppercase tracking-wider text-white/40">
-              Offer 4 · on bills of {money(MIN_SUBTOTAL)}+ · one pick per bill
+              Mystery Envelope · on bills of {money(MIN_SUBTOTAL)}+ · one pick per bill
             </p>
           )}
         </>

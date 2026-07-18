@@ -104,9 +104,12 @@ function feedback(ok: boolean) {
 export default function SellPage() {
   const router = useRouter();
   const [scanning, setScanning] = useState(false);
-  // Offers — both can be on at once (they combine, per the owner)
-  const [offer3, setOffer3] = useState(false);          // 2nd piece 25% off
-  const [reward, setReward] = useState<number | null>(null); // Offer 4 amount won
+  // Offers (poster v2): Buy 2/3/4 = 20/30/40% off applies AUTOMATICALLY —
+  // tierDismissed is the staff escape hatch. Mystery envelope is unchanged.
+  const [tierDismissed, setTierDismissed] = useState(false);
+  const [reward, setReward] = useState<number | null>(null); // Mystery amount won
+  // free keychain rides along on every purchase — auto-added once per sale
+  const keychainAuto = useRef(false);
   const [cart, setCart] = useState<Line[]>([]);
   const [discount, setDiscount] = useState<string>("0");
   const [soldBy, setSoldBy] = useState<string>("");
@@ -334,24 +337,26 @@ export default function SellPage() {
   );
   const pieces = useMemo(() => cart.reduce((n, l) => n + l.qty, 0), [cart]);
 
-  // Offer 3: buy 1, 2nd at 25% off — the LOWER-priced piece is the discounted
-  // one (per the poster). Needs 2+ pieces; recomputes as the cart changes.
-  const cheapest = useMemo(() => {
-    const prices = cart.filter((l) => l.qty > 0 && Number(l.price) > 0).map((l) => Number(l.price));
-    return prices.length ? Math.min(...prices) : 0;
-  }, [cart]);
-  const off3 = offer3 && pieces >= 2 ? Math.round(cheapest * 0.25) : 0;
-  const offerDiscount = off3 + (reward || 0);
+  // Buy 2 = 20% · Buy 3 = 30% · Buy 4+ = 40% — off the whole bill, automatic.
+  const tierPct = pieces >= 4 ? 40 : pieces === 3 ? 30 : pieces === 2 ? 20 : 0;
+  const tierAmt = Math.round((subtotal * tierPct) / 100);
+  const offTier = !tierDismissed && tierPct > 0 ? tierAmt : 0;
+  const offerDiscount = offTier + (reward || 0);
 
   const clearReward = useCallback(() => {
     setReward(null);
     try { localStorage.removeItem(REWARD_KEY); } catch { /* noop */ }
   }, []);
 
-  // offers drop out when the cart stops qualifying
+  // free keychain on every purchase — auto-add ONCE per sale, but never fight
+  // staff who deliberately set it back to 0
   useEffect(() => {
-    if (offer3 && pieces < 2) setOffer3(false);
-  }, [offer3, pieces]);
+    if (pieces > 0 && !keychainAuto.current) {
+      keychainAuto.current = true;
+      setFreebieCounts((c) => ({ ...c, "Key Chain": Math.max(1, c["Key Chain"] || 0) }));
+    }
+    if (pieces === 0) keychainAuto.current = false;
+  }, [pieces]);
   useEffect(() => {
     if (reward && cart.length > 0 && subtotal < OFFER4_MIN) {
       clearReward();
@@ -402,8 +407,9 @@ export default function SellPage() {
     setStatus("submitting");
     const snapshot = cart.map((l) => ({ ...l }));
     const offerParts: string[] = [];
-    if (off3 > 0) offerParts.push(`Offer 3 (2nd 25% off: -₹${off3})`);
-    if (reward) offerParts.push(`Offer 4 (Mystery: -₹${reward})`);
+    if (offTier > 0)
+      offerParts.push(`Offer 1 (Buy ${Math.min(pieces, 4)}${pieces > 4 ? "+" : ""}: ${tierPct}% off: -₹${offTier})`);
+    if (reward) offerParts.push(`Offer 2 (Mystery: -₹${reward})`);
     const body = {
       items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price) })),
       discount: discountNum + offerDiscount, // one figure on the bill; the split is in `offer`
@@ -453,7 +459,7 @@ export default function SellPage() {
         total,
       });
       feedback(true);
-      setOffer3(false);
+      setTierDismissed(false);
       clearReward(); // the envelope was for THIS bill
       // a name entered via "Others…" is now a real billed name — list it here
       // too, so it shows without waiting for a reload/refetch
@@ -726,27 +732,46 @@ export default function SellPage() {
           </div>
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Offers</p>
-          <div className="grid grid-cols-2 gap-2">
+          {offTier > 0 ? (
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-emerald-800">
+                  🎉 BUY {Math.min(pieces, 4)}{pieces > 4 ? "+" : ""} = {tierPct}% OFF
+                </p>
+                <span className="text-base font-bold tabular-nums text-emerald-700">− {money(offTier)}</span>
+              </div>
+              <p className="mt-0.5 text-xs text-emerald-700">
+                Applied automatically · free keychain added
+                {pieces === 2 && " · 1 more piece = 30% off"}
+                {pieces === 3 && " · 1 more piece = 40% off"}
+              </p>
+              <button onClick={() => setTierDismissed(true)} className="mt-1 text-xs text-emerald-600 underline">
+                Remove this offer
+              </button>
+            </div>
+          ) : tierPct > 0 ? (
             <button
-              onClick={() => setOffer3((v) => !v)}
-              disabled={pieces < 2}
-              className={`rounded-xl border px-2 py-2 text-sm font-medium disabled:opacity-40 ${offer3 ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+              onClick={() => setTierDismissed(false)}
+              className="rounded-xl border border-dashed border-emerald-300 bg-white px-3 py-2 text-left text-sm text-slate-600"
             >
-              {offer3 ? "✓ " : ""}2nd at 25% off{off3 > 0 ? ` (−₹${off3})` : ""}
+              Offer removed — tap to re-apply Buy {Math.min(pieces, 4)} = {tierPct}% off (−{money(tierAmt)})
             </button>
-            <button
-              onClick={() => router.push("/reward")}
-              disabled={subtotal < OFFER4_MIN && !reward}
-              className={`rounded-xl border px-2 py-2 text-sm font-medium disabled:opacity-40 ${reward ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
-            >
-              {reward ? `🎁 ₹${reward} won ✓` : "🎁 Mystery envelope"}
-            </button>
-          </div>
-          {pieces < 2 && subtotal < OFFER4_MIN && (
-            <p className="text-xs text-slate-400">Offer 3 needs 2+ pieces · envelope unlocks at ₹4,999+</p>
+          ) : (
+            <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              🏷 Buy 2 = <b>20%</b> · Buy 3 = <b>30%</b> · Buy 4 = <b>40%</b> off — applies automatically
+            </p>
           )}
-          {pieces >= 2 && subtotal < OFFER4_MIN && !reward && (
-            <p className="text-xs text-slate-400">Mystery envelope unlocks at ₹4,999+ (now ₹{subtotal.toLocaleString("en-IN")})</p>
+          <button
+            onClick={() => router.push("/reward")}
+            disabled={subtotal < OFFER4_MIN && !reward}
+            className={`rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-40 ${reward ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+          >
+            {reward ? `🎁 Mystery envelope · ₹${reward} won ✓` : "🎁 Mystery envelope"}
+          </button>
+          {subtotal < OFFER4_MIN && !reward && (
+            <p className="text-xs text-slate-400">
+              Mystery envelope unlocks at ₹4,999+ (now ₹{subtotal.toLocaleString("en-IN")})
+            </p>
           )}
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
@@ -815,17 +840,17 @@ export default function SellPage() {
               />
             </div>
           </div>
-          {off3 > 0 && (
+          {offTier > 0 && (
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-slate-500">Offer 3 · 2nd at 25% off
-                <button onClick={() => setOffer3(false)} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
+              <span className="text-slate-500">🎉 Buy {Math.min(pieces, 4)}{pieces > 4 ? "+" : ""} · {tierPct}% off
+                <button onClick={() => setTierDismissed(true)} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
               </span>
-              <span className="font-medium text-emerald-700">− {money(off3)}</span>
+              <span className="font-medium text-emerald-700">− {money(offTier)}</span>
             </div>
           )}
           {!!reward && (
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-slate-500">Offer 4 · Mystery envelope
+              <span className="text-slate-500">🎁 Mystery envelope
                 <button onClick={clearReward} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
               </span>
               <span className="font-medium text-emerald-700">− {money(reward)}</span>
@@ -880,8 +905,8 @@ export default function SellPage() {
             <div className="mt-3 space-y-1 text-sm">
               <Row label="Subtotal" value={money(subtotal)} />
               {discountNum > 0 && <Row label="Discount" value={`− ${money(discountNum)}`} />}
-              {off3 > 0 && <Row label="Offer 3 · 2nd at 25% off" value={`− ${money(off3)}`} />}
-              {!!reward && <Row label="Offer 4 · Mystery envelope" value={`− ${money(reward)}`} />}
+              {offTier > 0 && <Row label={`Buy ${Math.min(pieces, 4)}${pieces > 4 ? "+" : ""} · ${tierPct}% off`} value={`− ${money(offTier)}`} />}
+              {!!reward && <Row label="Mystery envelope" value={`− ${money(reward)}`} />}
               <div className="flex justify-between pt-1 text-lg font-bold">
                 <span>Total</span>
                 <span>{money(total)}</span>
