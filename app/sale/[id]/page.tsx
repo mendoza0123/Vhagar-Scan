@@ -263,6 +263,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
           paymentMethod={sale.payment_method}
           note={sale.note}
           freebie={sale.freebie}
+          soldBy={sale.sold_by}
         />
       </div>
     </main>

@@ -69,6 +69,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const note = body?.note?.toString().trim() || null;
   // freebies can be granted after the sale (customer came back for the cap)
   const freebie = body?.freebie?.toString().trim() || null;
+  // sold_by is correctable post-sale (wrong person picked at the till)
+  const soldBy = body?.sold_by?.toString().trim() || null;
   // payment can be split ("cash + upi") — keep known tokens only
   const pmTokens = (body?.payment_method || "").toString().toLowerCase().split(/[^a-z]+/)
     .filter((t: string, i: number, a: string[]) => ["cash", "card", "upi", "other"].includes(t) && a.indexOf(t) === i);
@@ -77,6 +79,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   await sql`UPDATE sales SET
       customer_name = ${name}, customer_phone = ${phone}, customer_email = ${email},
       delivery_method = ${address}, note = ${note}, freebie = ${freebie},
+      sold_by = COALESCE(${soldBy}, sold_by),
       payment_method = COALESCE(${pm}, payment_method)
     WHERE id = ${id} AND status = 'completed'`;
   return NextResponse.json({ ok: true });

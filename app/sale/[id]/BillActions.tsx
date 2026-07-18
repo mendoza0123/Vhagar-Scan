@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { normalizePhone } from "@/lib/phone";
 import { staffName } from "@/lib/staff";
 
 const FREEBIE_NAMES = ["Cap", "Key Chain"] as const;
+// same standing staff list + self-growing /api/staff union as the sell screen
+const BASE_STAFF = ["Aditya", "Naushi", "Angel"];
+const OTHER = "__other__";
 
 // "Cap x2 + Key Chain x1" (or legacy "Cap" / "Kitchen") → counts per freebie.
 function parseFreebieCounts(s: string | null): Record<string, number> {
@@ -35,6 +38,7 @@ type Props = {
   paymentMethod: string;
   note: string | null;
   freebie: string | null;
+  soldBy: string | null;
 };
 
 const PM_LABEL: Record<string, string> = { cash: "Cash", card: "Card", upi: "UPI", other: "Other" };
@@ -55,15 +59,24 @@ export default function BillActions(p: Props) {
     // customer came back for a cap/keychain after billing? edit it in, so
     // there's a record and it prints on the bill
     freebies: parseFreebieCounts(p.freebie),
+    soldBy: p.soldBy || "",
   }));
   const editPhoneOk = normalizePhone(f.phone) !== null;
   const bumpFreebie = (n: string, d: number) =>
     setF((cur) => ({ ...cur, freebies: { ...cur.freebies, [n]: Math.max(0, (cur.freebies[n] || 0) + d) } }));
-  const togglePayment = (pm: string) =>
-    setF((cur) => {
-      const next = cur.payments.includes(pm) ? cur.payments.filter((x) => x !== pm) : [...cur.payments, pm];
-      return { ...cur, payments: next.length ? next : cur.payments };
-    });
+  const [staffList, setStaffList] = useState<string[]>(BASE_STAFF);
+  const [soldByOther, setSoldByOther] = useState(false);
+  useEffect(() => {
+    if (!editing) return;
+    let live = true;
+    fetch("/api/staff")
+      .then((r) => (r.ok ? r.json() : { names: [] }))
+      .then((d) => { if (live) setStaffList([...new Set([...BASE_STAFF, ...(d.names || [])])].sort()); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [editing]);
+  // one payment method per bill — picking one replaces the rest
+  const togglePayment = (pm: string) => setF((cur) => ({ ...cur, payments: [pm] }));
 
   // Filename is brand + bill no only, e.g. Vhagar-VH-2026-0023.pdf
   const filename = `Vhagar-${p.billNo}.pdf`;
@@ -173,6 +186,7 @@ export default function BillActions(p: Props) {
         customer_name: f.name, customer_phone: normalizePhone(f.phone), customer_email: f.email,
         address: f.address, payment_method: f.payments.join(" + "), note: f.note,
         freebie: freebieString(f.freebies),
+        sold_by: f.soldBy.trim() || null,
       }),
     });
     setBusy(null);
@@ -246,6 +260,32 @@ export default function BillActions(p: Props) {
                 ))}
               </div>
               <input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="Notes" className="rounded-xl border border-slate-300 px-4 py-2.5 outline-none focus:border-brand" />
+
+              <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Sold by</p>
+              <select
+                value={soldByOther ? OTHER : staffList.includes(f.soldBy) ? f.soldBy : f.soldBy ? OTHER : ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === OTHER) { setSoldByOther(true); setF({ ...f, soldBy: "" }); }
+                  else { setSoldByOther(false); setF({ ...f, soldBy: v }); }
+                }}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 outline-none focus:border-brand"
+              >
+                <option value="">Select staff…</option>
+                {staffList.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+                <option value={OTHER}>Others…</option>
+              </select>
+              {(soldByOther || (f.soldBy !== "" && !staffList.includes(f.soldBy))) && (
+                <input
+                  value={f.soldBy}
+                  onChange={(e) => setF({ ...f, soldBy: e.target.value })}
+                  placeholder="Type the name"
+                  autoCapitalize="words"
+                  className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 outline-none focus:border-brand"
+                />
+              )}
 
               <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Freebies given</p>
               <div className="grid grid-cols-2 gap-2">

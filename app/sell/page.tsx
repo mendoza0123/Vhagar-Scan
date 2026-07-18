@@ -119,13 +119,11 @@ export default function SellPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
-  const [payments, setPayments] = useState<string[]>(["cash"]); // multi: "cash + upi"
+  // ONE payment method per bill (owner call) — picking one drops the others.
+  // UPI is the booth default.
+  const [payments, setPayments] = useState<string[]>(["upi"]);
   const PM_LABEL: Record<string, string> = { cash: "Cash", card: "Card", upi: "UPI", other: "Other" };
-  const togglePayment = (p: string) =>
-    setPayments((prev) => {
-      const next = prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p];
-      return next.length ? next : prev; // at least one stays selected
-    });
+  const togglePayment = (p: string) => setPayments([p]);
   const paymentStr = payments.map((p) => PM_LABEL[p]).join(" + ");
   const [channel, setChannel] = useState("Exhibition");
   const [channelOther, setChannelOther] = useState("");
@@ -471,7 +469,7 @@ export default function SellPage() {
       setPhone("");
       setEmail("");
       setAddress("");
-      setPayments(["cash"]);
+      setPayments(["upi"]);
       setChannel("Exhibition");
       setChannelOther("");
       setFreebieCounts({ ...NO_FREEBIES });
@@ -795,9 +793,6 @@ export default function SellPage() {
               </button>
             ))}
           </div>
-          {payments.length > 1 && (
-            <p className="text-xs text-slate-500">Split payment: {paymentStr}</p>
-          )}
         </section>
       )}
 
