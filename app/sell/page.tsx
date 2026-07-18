@@ -50,6 +50,7 @@ const SOLDBY_KEY = "vhagar.soldBy.v1";
 // checkout or removing the offer consumes it. Same literal in app/reward/page.tsx.
 const REWARD_KEY = "vhagar.reward.v1";
 const OFFER4_MIN = 4999;
+const CAP_MIN = 2499; // free cap on bills of ₹2,499+ (poster)
 
 // Freebie options — each can be given in a quantity via +/- on the sell screen.
 const FREEBIE_OPTIONS = ["Cap", "Key Chain"] as const;
@@ -110,6 +111,7 @@ export default function SellPage() {
   const [reward, setReward] = useState<number | null>(null); // Mystery amount won
   // free keychain rides along on every purchase — auto-added once per sale
   const keychainAuto = useRef(false);
+  const capAuto = useRef(false); // did WE auto-add the ₹2,499+ cap?
   const [cart, setCart] = useState<Line[]>([]);
   const [discount, setDiscount] = useState<string>("0");
   const [soldBy, setSoldBy] = useState<string>("");
@@ -355,6 +357,22 @@ export default function SellPage() {
     }
     if (pieces === 0) keychainAuto.current = false;
   }, [pieces]);
+
+  // free cap on bills of ₹2,499+ — auto-add ONE cap, and take back only the one
+  // WE added if the bill drops under the line. A cap staff placed by hand is
+  // never touched, and staff removing the auto one isn't fought either.
+  useEffect(() => {
+    if (subtotal >= CAP_MIN && !capAuto.current) {
+      setFreebieCounts((c) => {
+        if (c.Cap) return c; // one's already on the bill — nothing to add
+        capAuto.current = true;
+        return { ...c, Cap: 1 };
+      });
+    } else if (subtotal < CAP_MIN && capAuto.current) {
+      capAuto.current = false;
+      setFreebieCounts((c) => ({ ...c, Cap: Math.max(0, (c.Cap || 0) - 1) }));
+    }
+  }, [subtotal]);
   useEffect(() => {
     if (reward && cart.length > 0 && subtotal < OFFER4_MIN) {
       clearReward();
@@ -728,6 +746,13 @@ export default function SellPage() {
               );
             })}
           </div>
+          {subtotal >= CAP_MIN && (freebieCounts.Cap || 0) > 0 ? (
+            <p className="text-xs font-medium text-emerald-700">🧢 Free cap added — bill is ₹2,499+</p>
+          ) : subtotal > 0 && subtotal < CAP_MIN ? (
+            <p className="text-xs text-slate-400">
+              Free cap at ₹2,499+ (₹{(CAP_MIN - subtotal).toLocaleString("en-IN")} to go)
+            </p>
+          ) : null}
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Offers</p>
           {offTier > 0 ? (
