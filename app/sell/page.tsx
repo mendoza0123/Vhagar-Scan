@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { money } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone";
@@ -45,6 +46,10 @@ type Receipt = {
 const CART_KEY = "vhagar.cart.v2";
 const DISCOUNT_KEY = "vhagar.discount.v2";
 const SOLDBY_KEY = "vhagar.soldBy.v1";
+// Offer 4 (mystery envelope) result, written by /reward. Survives refresh; a
+// checkout or removing the offer consumes it. Same literal in app/reward/page.tsx.
+const REWARD_KEY = "vhagar.reward.v1";
+const OFFER4_MIN = 4999;
 
 // Freebie options — each can be given in a quantity via +/- on the sell screen.
 const FREEBIE_OPTIONS = ["Cap", "Key Chain"] as const;
@@ -97,7 +102,11 @@ function feedback(ok: boolean) {
 }
 
 export default function SellPage() {
+  const router = useRouter();
   const [scanning, setScanning] = useState(false);
+  // Offers — both can be on at once (they combine, per the owner)
+  const [offer3, setOffer3] = useState(false);          // 2nd piece 25% off
+  const [reward, setReward] = useState<number | null>(null); // Offer 4 amount won
   const [cart, setCart] = useState<Line[]>([]);
   const [discount, setDiscount] = useState<string>("0");
   const [soldBy, setSoldBy] = useState<string>("");
@@ -152,6 +161,11 @@ export default function SellPage() {
       if (d) setDiscount(d);
       const s = localStorage.getItem(SOLDBY_KEY);
       if (s) setSoldBy(s);
+      const r = localStorage.getItem(REWARD_KEY); // back from /reward
+      if (r) {
+        const j = JSON.parse(r);
+        if (j?.amount) setReward(Number(j.amount));
+      }
     } catch {
       /* ignore corrupt storage */
     }
@@ -318,8 +332,35 @@ export default function SellPage() {
     () => cart.reduce((s, l) => s + (Number(l.price) || 0) * l.qty, 0),
     [cart]
   );
-  const discountNum = Math.min(Math.max(0, Number(discount) || 0), subtotal);
-  const total = Math.max(0, subtotal - discountNum);
+  const pieces = useMemo(() => cart.reduce((n, l) => n + l.qty, 0), [cart]);
+
+  // Offer 3: buy 1, 2nd at 25% off — the LOWER-priced piece is the discounted
+  // one (per the poster). Needs 2+ pieces; recomputes as the cart changes.
+  const cheapest = useMemo(() => {
+    const prices = cart.filter((l) => l.qty > 0 && Number(l.price) > 0).map((l) => Number(l.price));
+    return prices.length ? Math.min(...prices) : 0;
+  }, [cart]);
+  const off3 = offer3 && pieces >= 2 ? Math.round(cheapest * 0.25) : 0;
+  const offerDiscount = off3 + (reward || 0);
+
+  const clearReward = useCallback(() => {
+    setReward(null);
+    try { localStorage.removeItem(REWARD_KEY); } catch { /* noop */ }
+  }, []);
+
+  // offers drop out when the cart stops qualifying
+  useEffect(() => {
+    if (offer3 && pieces < 2) setOffer3(false);
+  }, [offer3, pieces]);
+  useEffect(() => {
+    if (reward && cart.length > 0 && subtotal < OFFER4_MIN) {
+      clearReward();
+      showToast("Bill dropped under ₹4,999 — mystery reward removed", "warn");
+    }
+  }, [reward, subtotal, cart.length, clearReward, showToast]);
+
+  const discountNum = Math.min(Math.max(0, Number(discount) || 0), Math.max(0, subtotal - offerDiscount));
+  const total = Math.max(0, subtotal - discountNum - offerDiscount);
   const blockingLines = cart.filter((l) => lineBlock(l) !== null);
   // Name + a REAL mobile are mandatory — 10 digits starting 6-9 (+91/0 ok),
   // so a 9-digit or 1-digit typo can't get billed.
@@ -360,9 +401,13 @@ export default function SellPage() {
 
     setStatus("submitting");
     const snapshot = cart.map((l) => ({ ...l }));
+    const offerParts: string[] = [];
+    if (off3 > 0) offerParts.push(`Offer 3 (2nd 25% off: -₹${off3})`);
+    if (reward) offerParts.push(`Offer 4 (Mystery: -₹${reward})`);
     const body = {
       items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price) })),
-      discount: discountNum,
+      discount: discountNum + offerDiscount, // one figure on the bill; the split is in `offer`
+      offer: offerParts.join(" + ") || null,
       soldBy: soldBy.trim() || null,
       paymentMethod: payments.join(" + "),
       channel: saleChannel,
@@ -404,10 +449,12 @@ export default function SellPage() {
         bill_no: data.bill_no,
         lines: snapshot,
         subtotal,
-        discount: discountNum,
+        discount: discountNum + offerDiscount,
         total,
       });
       feedback(true);
+      setOffer3(false);
+      clearReward(); // the envelope was for THIS bill
       // a name entered via "Others…" is now a real billed name — list it here
       // too, so it shows without waiting for a reload/refetch
       const sb = soldBy.trim();
@@ -678,6 +725,30 @@ export default function SellPage() {
             })}
           </div>
 
+          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Offers</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setOffer3((v) => !v)}
+              disabled={pieces < 2}
+              className={`rounded-xl border px-2 py-2 text-sm font-medium disabled:opacity-40 ${offer3 ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+            >
+              {offer3 ? "✓ " : ""}2nd at 25% off{off3 > 0 ? ` (−₹${off3})` : ""}
+            </button>
+            <button
+              onClick={() => router.push("/reward")}
+              disabled={subtotal < OFFER4_MIN && !reward}
+              className={`rounded-xl border px-2 py-2 text-sm font-medium disabled:opacity-40 ${reward ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+            >
+              {reward ? `🎁 ₹${reward} won ✓` : "🎁 Mystery envelope"}
+            </button>
+          </div>
+          {pieces < 2 && subtotal < OFFER4_MIN && (
+            <p className="text-xs text-slate-400">Offer 3 needs 2+ pieces · envelope unlocks at ₹4,999+</p>
+          )}
+          {pieces >= 2 && subtotal < OFFER4_MIN && !reward && (
+            <p className="text-xs text-slate-400">Mystery envelope unlocks at ₹4,999+ (now ₹{subtotal.toLocaleString("en-IN")})</p>
+          )}
+
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${nameOk ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Mobile no. (10 digits, required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${phoneOk ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
@@ -744,6 +815,22 @@ export default function SellPage() {
               />
             </div>
           </div>
+          {off3 > 0 && (
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-slate-500">Offer 3 · 2nd at 25% off
+                <button onClick={() => setOffer3(false)} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
+              </span>
+              <span className="font-medium text-emerald-700">− {money(off3)}</span>
+            </div>
+          )}
+          {!!reward && (
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-slate-500">Offer 4 · Mystery envelope
+                <button onClick={clearReward} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
+              </span>
+              <span className="font-medium text-emerald-700">− {money(reward)}</span>
+            </div>
+          )}
           <div className="mb-3 flex items-center justify-between text-lg font-bold">
             <span>Total</span>
             <span>{money(total)}</span>
@@ -793,6 +880,8 @@ export default function SellPage() {
             <div className="mt-3 space-y-1 text-sm">
               <Row label="Subtotal" value={money(subtotal)} />
               {discountNum > 0 && <Row label="Discount" value={`− ${money(discountNum)}`} />}
+              {off3 > 0 && <Row label="Offer 3 · 2nd at 25% off" value={`− ${money(off3)}`} />}
+              {!!reward && <Row label="Offer 4 · Mystery envelope" value={`− ${money(reward)}`} />}
               <div className="flex justify-between pt-1 text-lg font-bold">
                 <span>Total</span>
                 <span>{money(total)}</span>
