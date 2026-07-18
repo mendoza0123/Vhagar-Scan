@@ -343,6 +343,12 @@ export default function SellPage() {
   const offTier = !tierDismissed && tierPct > 0 ? tierAmt : 0;
   const offerDiscount = offTier + (reward || 0);
 
+  // Final bill AFTER offers + manual discount. The free cap keys off this, not
+  // the pre-discount subtotal, so a bill that drops under ₹2,499 once the Buy-2
+  // discount lands doesn't get the cap.
+  const discountNum = Math.min(Math.max(0, Number(discount) || 0), Math.max(0, subtotal - offerDiscount));
+  const total = Math.max(0, subtotal - discountNum - offerDiscount);
+
   const clearReward = useCallback(() => {
     setReward(null);
     try { localStorage.removeItem(REWARD_KEY); } catch { /* noop */ }
@@ -362,17 +368,17 @@ export default function SellPage() {
   // WE added if the bill drops under the line. A cap staff placed by hand is
   // never touched, and staff removing the auto one isn't fought either.
   useEffect(() => {
-    if (subtotal >= CAP_MIN && !capAuto.current) {
+    if (total >= CAP_MIN && !capAuto.current) {
       setFreebieCounts((c) => {
         if (c.Cap) return c; // one's already on the bill — nothing to add
         capAuto.current = true;
         return { ...c, Cap: 1 };
       });
-    } else if (subtotal < CAP_MIN && capAuto.current) {
+    } else if (total < CAP_MIN && capAuto.current) {
       capAuto.current = false;
       setFreebieCounts((c) => ({ ...c, Cap: Math.max(0, (c.Cap || 0) - 1) }));
     }
-  }, [subtotal]);
+  }, [total]);
   useEffect(() => {
     if (reward && cart.length > 0 && subtotal < OFFER4_MIN) {
       clearReward();
@@ -380,8 +386,6 @@ export default function SellPage() {
     }
   }, [reward, subtotal, cart.length, clearReward, showToast]);
 
-  const discountNum = Math.min(Math.max(0, Number(discount) || 0), Math.max(0, subtotal - offerDiscount));
-  const total = Math.max(0, subtotal - discountNum - offerDiscount);
   const blockingLines = cart.filter((l) => lineBlock(l) !== null);
   // Name + a REAL mobile are mandatory — 10 digits starting 6-9 (+91/0 ok),
   // so a 9-digit or 1-digit typo can't get billed.
@@ -746,11 +750,11 @@ export default function SellPage() {
               );
             })}
           </div>
-          {subtotal >= CAP_MIN && (freebieCounts.Cap || 0) > 0 ? (
+          {total >= CAP_MIN && (freebieCounts.Cap || 0) > 0 ? (
             <p className="text-xs font-medium text-emerald-700">🧢 Free cap added — bill is ₹2,499+</p>
-          ) : subtotal > 0 && subtotal < CAP_MIN ? (
+          ) : total > 0 && total < CAP_MIN ? (
             <p className="text-xs text-slate-400">
-              Free cap at ₹2,499+ (₹{(CAP_MIN - subtotal).toLocaleString("en-IN")} to go)
+              Free cap at ₹2,499+ (₹{(CAP_MIN - total).toLocaleString("en-IN")} to go)
             </p>
           ) : null}
 
