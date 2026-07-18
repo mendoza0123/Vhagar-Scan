@@ -315,4 +315,4 @@ function IconBox({ children }: { children: React.ReactNode }) {
 const PinIcon = () => (<IconBox><path d="M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11Z" /><circle cx="12" cy="10" r="2.5" /></IconBox>);
 const PhoneIcon = () => (<IconBox><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.1-1.1a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2Z" /></IconBox>);
 const MailIcon = () => (<IconBox><rect x="3" y="5" width="18" height="14" rx="1.5" /><path d="m3 7 9 6 9-6" /></IconBox>);
-const WebIcon = () => (<IconBox><path d="m6 15 4-9 4 9" /><path d="M9 3v18" /></IconBox>);
+const WebIcon = () => (<IconBox><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><ellipse cx="12" cy="12" rx="4" ry="9" /></IconBox>);
