@@ -50,7 +50,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (body?.action === "void") {
     try {
-      const [{ void_sale: ok }] = await sql`SELECT void_sale(${id}) AS void_sale`;
+      const by = body?.by?.toString().trim() || null;
+      const [{ void_sale: ok }] = await sql`SELECT void_sale(${id}, ${by}) AS void_sale`;
       return NextResponse.json({ ok, status: "void" });
     } catch (e: any) {
       return NextResponse.json({ error: "void_failed", message: e?.message || "Could not void" }, { status: 400 });

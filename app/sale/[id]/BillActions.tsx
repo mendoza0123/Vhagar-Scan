@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { normalizePhone } from "@/lib/phone";
+import { staffName } from "@/lib/staff";
 
 const FREEBIE_NAMES = ["Cap", "Key Chain"] as const;
 
@@ -155,7 +156,8 @@ export default function BillActions(p: Props) {
     if (!confirm("Void this bill and restock all its items?")) return;
     setBusy("void");
     const res = await fetch(`/api/sales/${p.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "void" }),
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "void", by: staffName() }), // voids are attributed, like sales
     });
     setBusy(null);
     if (res.ok) router.refresh();
