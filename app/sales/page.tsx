@@ -16,6 +16,7 @@ type SaleRow = {
   status: string;
   created_at: string;
   item_count: number;
+  matched?: string | null; // which items matched the search
 };
 
 const REFRESH_MS = 8000;
@@ -27,10 +28,16 @@ export default function SalesPage() {
   }>({ sales: [], grandTotal: 0, count: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [q, setQ] = useState("");
+  const [term, setTerm] = useState(""); // debounced — what's actually queried
 
-  const load = async (s: "today" | "all") => {
+  // a search looks across ALL bills; the Today/All toggle only applies when idle
+  const load = async (s: "today" | "all", search = "") => {
     try {
-      const res = await fetch(`/api/sales${s === "today" ? "?date=today" : ""}`, {
+      const url = search.trim().length >= 2
+        ? `/api/sales?q=${encodeURIComponent(search.trim())}`
+        : `/api/sales${s === "today" ? "?date=today" : ""}`;
+      const res = await fetch(url, {
         cache: "no-store",
       });
       if (!res.ok) throw new Error();
@@ -43,14 +50,20 @@ export default function SalesPage() {
     }
   };
 
+  // debounce typing so the booth hotspot isn't hammered per keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
+
   useEffect(() => {
     setLoading(true);
-    load(scope);
+    load(scope, term);
     const t = setInterval(() => {
-      if (!document.hidden) load(scope);
+      if (!document.hidden) load(scope, term);
     }, REFRESH_MS);
     return () => clearInterval(t);
-  }, [scope]);
+  }, [scope, term]);
 
   const pieces = useMemo(
     () => data.sales.reduce((n, s) => n + (s.item_count || 0), 0),
@@ -71,8 +84,32 @@ export default function SalesPage() {
         </Link>
       </header>
 
-      {/* scope toggle */}
-      <div className="flex gap-2">
+      {/* search — product, size, SKU, bill no, customer, phone or staff */}
+      <div className="relative">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search product, size, SKU, bill no, customer…"
+          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-brand"
+        />
+        {q && (
+          <button
+            onClick={() => setQ("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-lg text-slate-400"
+            aria-label="Clear search"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      {term.length >= 2 && (
+        <p className="-mt-2 text-xs text-slate-500">
+          Searching <b>all bills</b> for “{term}” — {data.sales.length} match{data.sales.length === 1 ? "" : "es"}
+        </p>
+      )}
+
+      {/* scope toggle (searching overrides it) */}
+      <div className={`flex gap-2 ${term.length >= 2 ? "pointer-events-none opacity-40" : ""}`}>
         {(["today", "all"] as const).map((s) => (
           <button
             key={s}
@@ -154,6 +191,9 @@ export default function SalesPage() {
                     {s.item_count === 1 ? "" : "s"}
                     {s.sold_by ? ` · ${s.sold_by}` : ""}
                   </p>
+                  {s.matched && (
+                    <p className="mt-0.5 truncate text-xs font-medium text-brand">🔎 {s.matched}</p>
+                  )}
                 </div>
                 <div className="text-right">
                   <p className={`font-bold ${s.status === "void" ? "text-slate-400 line-through" : ""}`}>

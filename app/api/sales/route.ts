@@ -153,10 +153,46 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/sales?date=today — today's bills, newest first (India local day).
+// GET /api/sales?date=today&q=lio — bills, newest first (India local day).
+// A search (`q`) matches the bill no, customer, phone, staff, or any item
+// name/SKU/size on the bill — and deliberately searches ALL bills, ignoring the
+// today filter, since "was LIO LINEN 03 ever sold?" is the question being asked.
 export async function GET(req: NextRequest) {
   noStore();
   const date = req.nextUrl.searchParams.get("date");
+  const qRaw = req.nextUrl.searchParams.get("q")?.trim() || "";
+  const q = qRaw.length >= 2 ? qRaw : null;
+  const qLike = q ? `%${q}%` : null;
+  const qSize = q ? q.toUpperCase() : null;
+
+  if (q) {
+    const rows = await sql`
+      SELECT s.id, s.bill_no, s.subtotal::float8 AS subtotal,
+             s.discount::float8 AS discount, s.total::float8 AS total,
+             s.payment_method, s.customer_name, s.sold_by, s.status, s.created_at,
+             (SELECT count(*)::int FROM sale_items si WHERE si.sale_id = s.id) AS item_count,
+             (SELECT string_agg(DISTINCT si.name || ' ' || si.size, ', ')
+                FROM sale_items si WHERE si.sale_id = s.id
+                 AND (si.name ILIKE ${qLike} OR si.variant_sku ILIKE ${qLike} OR si.size = ${qSize})) AS matched
+      FROM sales s
+      WHERE NOT s.is_test
+        AND (s.bill_no ILIKE ${qLike} OR s.customer_name ILIKE ${qLike}
+             OR s.customer_phone ILIKE ${qLike} OR s.sold_by ILIKE ${qLike}
+             OR EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id
+                         AND (si.name ILIKE ${qLike} OR si.variant_sku ILIKE ${qLike} OR si.size = ${qSize})))
+      ORDER BY s.id DESC
+      LIMIT 200`;
+    const live = rows.filter((r: any) => r.status === "completed");
+    const voided = rows.filter((r: any) => r.status === "void");
+    return NextResponse.json({
+      sales: rows,
+      grandTotal: live.reduce((s: number, r: any) => s + Number(r.total), 0),
+      count: live.length,
+      voidCount: voided.length,
+      voidValue: voided.reduce((s: number, r: any) => s + Number(r.total), 0),
+      searched: q,
+    });
+  }
 
   // Voided bills STAY in the log (marked void) — a bill that vanishes is a bill
   // nobody can account for. They're excluded from the totals below.
