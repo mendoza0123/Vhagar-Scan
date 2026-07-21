@@ -52,6 +52,15 @@ const REWARD_KEY = "vhagar.reward.v1";
 const OFFER4_MIN = 4999;
 const CAP_MIN = 2499; // free cap on bills of ₹2,499+ (poster)
 
+// The cart persists in localStorage so a flaky-network refresh never loses a
+// sale. Flip side: a customer walks off, the browser gets minimized/closed, and
+// the next customer's scan lands on top of the old cart. So cart activity is
+// timestamped, and coming back after STALE_MS of inactivity starts a FRESH bill
+// — the old cart is stashed (never deleted) behind an Undo banner.
+const TOUCHED_KEY = "vhagar.cart.touchedAt";
+const STASH_KEY = "vhagar.cart.stash.v1";
+const STALE_MS = 90_000;
+
 // Freebie options — each can be given in a quantity via +/- on the sell screen.
 const FREEBIE_OPTIONS = ["Cap", "Key Chain"] as const;
 const NO_FREEBIES: Record<string, number> = { Cap: 0, "Key Chain": 0 };
@@ -113,6 +122,10 @@ export default function SellPage() {
   const keychainAuto = useRef(false);
   const capAuto = useRef(false); // did WE auto-add the ₹2,499+ cap?
   const [cart, setCart] = useState<Line[]>([]);
+  // pieces set aside by the stale-cart guard, shown in the Undo banner
+  const [staleCount, setStaleCount] = useState<number | null>(null);
+  const cartRef = useRef<Line[]>([]);
+  const discountRef = useRef("0");
   const [discount, setDiscount] = useState<string>("0");
   const [soldBy, setSoldBy] = useState<string>("");
   const [staffList, setStaffList] = useState<string[]>(BASE_STAFF);
@@ -156,30 +169,82 @@ export default function SellPage() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---- restore cart from localStorage (survive refresh / flaky reload) ----
+  // Cold-reopen path of the stale guard: if the saved cart has been idle past
+  // STALE_MS, it belonged to a customer who left — stash it and start clean.
   useEffect(() => {
     try {
       const c = localStorage.getItem(CART_KEY);
-      if (c) setCart(JSON.parse(c));
-      const d = localStorage.getItem(DISCOUNT_KEY);
-      if (d) setDiscount(d);
+      const saved: Line[] = c ? JSON.parse(c) : [];
+      const touched = Number(localStorage.getItem(TOUCHED_KEY) || 0);
+      const isStale = saved.length > 0 && touched > 0 && Date.now() - touched > STALE_MS;
+
+      if (isStale) {
+        localStorage.setItem(STASH_KEY, JSON.stringify({
+          cart: saved,
+          discount: localStorage.getItem(DISCOUNT_KEY) || "0",
+        }));
+        localStorage.removeItem(CART_KEY);
+        localStorage.removeItem(DISCOUNT_KEY);
+        localStorage.removeItem(REWARD_KEY); // the envelope was that bill's
+      } else {
+        if (saved.length) setCart(saved);
+        const d = localStorage.getItem(DISCOUNT_KEY);
+        if (d) setDiscount(d);
+        const r = localStorage.getItem(REWARD_KEY); // back from /reward
+        if (r) {
+          const j = JSON.parse(r);
+          if (j?.amount) setReward(Number(j.amount));
+        }
+      }
+
+      // an unactioned stash (from this visit or an earlier one) shows the banner
+      const st = localStorage.getItem(STASH_KEY);
+      if (st) {
+        const j = JSON.parse(st);
+        setStaleCount((j.cart || []).reduce((n: number, l: Line) => n + (l.qty || 0), 0));
+      }
+
       const s = localStorage.getItem(SOLDBY_KEY);
       if (s) setSoldBy(s);
-      const r = localStorage.getItem(REWARD_KEY); // back from /reward
-      if (r) {
-        const j = JSON.parse(r);
-        if (j?.amount) setReward(Number(j.amount));
-      }
     } catch {
       /* ignore corrupt storage */
     }
     setHydrated(true);
   }, []);
 
-  // ---- persist ----
+  // Live-tab path: the booth was minimized/backgrounded and comes back after
+  // the cart went idle — same rule, same stash, same Undo.
   useEffect(() => {
-    if (hydrated) localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const touched = Number(localStorage.getItem(TOUCHED_KEY) || 0);
+      if (cartRef.current.length === 0 || !touched || Date.now() - touched <= STALE_MS) return;
+      const stash = { cart: cartRef.current, discount: discountRef.current };
+      try { localStorage.setItem(STASH_KEY, JSON.stringify(stash)); } catch { /* noop */ }
+      setCart([]);
+      setDiscount("0");
+      setFreebieCounts({ ...NO_FREEBIES });
+      setTierDismissed(false);
+      keychainAuto.current = false;
+      capAuto.current = false;
+      clearReward();
+      setStaleCount(stash.cart.reduce((n, l) => n + l.qty, 0));
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- persist (and stamp cart activity for the stale guard) ----
+  useEffect(() => {
+    cartRef.current = cart;
+    if (!hydrated) return;
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    if (cart.length) localStorage.setItem(TOUCHED_KEY, String(Date.now()));
+    else localStorage.removeItem(TOUCHED_KEY);
   }, [cart, hydrated]);
   useEffect(() => {
+    discountRef.current = discount;
     if (hydrated) localStorage.setItem(DISCOUNT_KEY, discount);
   }, [discount, hydrated]);
   useEffect(() => {
@@ -328,6 +393,33 @@ export default function SellPage() {
     setCart([]);
     setDiscount("0");
     setError(null);
+  };
+
+  // ---- stale-cart stash: restore (merged into whatever's scanned) / dismiss ----
+  const restoreStash = () => {
+    try {
+      const st = localStorage.getItem(STASH_KEY);
+      if (st) {
+        const j = JSON.parse(st) as { cart: Line[]; discount?: string };
+        setCart((prev) => {
+          const bySku = new Map(prev.map((l) => [l.sku, { ...l }]));
+          for (const l of j.cart || []) {
+            const e = bySku.get(l.sku);
+            if (e) e.qty += l.qty;
+            else bySku.set(l.sku, l);
+          }
+          return Array.from(bySku.values());
+        });
+        if (j.discount && j.discount !== "0") setDiscount(j.discount);
+        localStorage.removeItem(STASH_KEY);
+        showToast("Previous cart restored");
+      }
+    } catch { /* corrupt stash — nothing to restore */ }
+    setStaleCount(null);
+  };
+  const dismissStash = () => {
+    try { localStorage.removeItem(STASH_KEY); } catch { /* noop */ }
+    setStaleCount(null);
   };
 
   // ---- totals ----
@@ -516,6 +608,22 @@ export default function SellPage() {
           Stock
         </Link>
       </header>
+
+      {/* ---- stale-cart banner: the old bill was set aside, not deleted ---- */}
+      {staleCount !== null && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          🧹 Started a fresh bill — the previous customer&apos;s cart ({staleCount} pc
+          {staleCount === 1 ? "" : "s"}) was set aside.
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button onClick={restoreStash} className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold">
+              ↩ Restore it
+            </button>
+            <button onClick={dismissStash} className="rounded-lg px-3 py-1.5 text-xs text-amber-700 underline">
+              ✕ Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ---- scanner ---- */}
       <section>
