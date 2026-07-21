@@ -22,6 +22,7 @@ type Variant = {
   category: string | null;
 };
 
+type Source = "rack" | "carton" | "display";
 type Line = {
   sku: string;
   name: string;
@@ -32,7 +33,12 @@ type Line = {
   qty: number;
   needs_price: boolean;
   qty_on_hand: number;
+  // where the piece physically came from — drives WHICH index the sale
+  // deducts (rack vs carton vs neither). Never touches qty_on_hand.
+  src?: Source;
 };
+
+const SRC_LABEL: Record<Source, string> = { rack: "🧺 Rack", carton: "📦 Carton", display: "👕 Display" };
 
 type Receipt = {
   id: number;
@@ -292,6 +298,7 @@ export default function SellPage() {
             qty: 1,
             needs_price: v.needs_price,
             qty_on_hand: v.qty_on_hand,
+            src: "rack", // the default grab spot; staff switch when they dig into a box
           },
         ];
       });
@@ -388,6 +395,8 @@ export default function SellPage() {
     if (price !== "" && !/^\d*\.?\d*$/.test(price)) return; // digits + one dot
     setCart((prev) => prev.map((l) => (l.sku === sku ? { ...l, price } : l)));
   };
+  const setSrc = (sku: string, src: Source) =>
+    setCart((prev) => prev.map((l) => (l.sku === sku ? { ...l, src } : l)));
   const removeLine = (sku: string) => setCart((prev) => prev.filter((l) => l.sku !== sku));
   const clearCart = () => {
     setCart([]);
@@ -523,7 +532,7 @@ export default function SellPage() {
       offerParts.push(`Offer 1 (Buy ${Math.min(pieces, 4)}${pieces > 4 ? "+" : ""}: ${tierPct}% off: -₹${offTier})`);
     if (reward) offerParts.push(`Offer 2 (Mystery: -₹${reward})`);
     const body = {
-      items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price) })),
+      items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price), src: l.src || "rack" })),
       discount: discountNum + offerDiscount, // one figure on the bill; the split is in `offer`
       offer: offerParts.join(" + ") || null,
       soldBy: soldBy.trim() || null,
@@ -758,6 +767,20 @@ export default function SellPage() {
                       }`}
                     />
                   </div>
+                </div>
+
+                {/* where THIS piece physically came from (Naushi's fix) */}
+                <div className="mt-2 flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">From</span>
+                  {(["rack", "carton", "display"] as Source[]).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setSrc(l.sku, s)}
+                      className={`rounded-lg border px-2 py-1 text-xs font-medium ${(l.src || "rack") === s ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-500"}`}
+                    >
+                      {SRC_LABEL[s]}
+                    </button>
+                  ))}
                 </div>
 
                 <div className="mt-2 flex items-center justify-between">

@@ -6,7 +6,8 @@ import { normalizePhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
 
-type IncomingItem = { sku: string; qty: number; price: number };
+type IncomingItem = { sku: string; qty: number; price: number; src: string };
+const SOURCES = ["rack", "carton", "display"];
 
 // POST /api/sales — atomic checkout through process_sale().
 // Body: { items:[{sku,qty,price}], discount?, customer?, soldBy?, note? }
@@ -54,7 +55,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "bad_qty", sku }, { status: 400 });
     if (!Number.isFinite(price) || price < 0)
       return NextResponse.json({ error: "bad_price", sku }, { status: 400 });
-    items.push({ sku, qty, price });
+    // where the piece came from (rack default) — process_sale ignores this
+    // field; cartons_consume_src uses it to deduct the right index
+    const src = SOURCES.includes(it?.src) ? it.src : "rack";
+    items.push({ sku, qty, price, src });
   }
   if (items.length === 0)
     return NextResponse.json({ error: "empty_cart" }, { status: 400 });
@@ -101,13 +105,13 @@ export async function POST(req: NextRequest) {
       ? `VH-2026-Test${String(n).padStart(2, "0")}`
       : `VH-2026-${String(n).padStart(4, "0")}`;
 
-    // Deduct the sold pieces from whichever carton(s) hold them, so the box
-    // index tracks reality. Best-effort: a piece from the display rack simply
-    // isn't in any carton, and a failure here never blocks the sale.
+    // Deduct the sold pieces from the index STAFF SAID they came from (rack /
+    // carton / display — display deducts nothing). Best-effort: a failure here
+    // never blocks the sale; qty_on_hand was already handled atomically above.
     try {
-      await sql`SELECT cartons_consume(${payload}::jsonb)`;
+      await sql`SELECT cartons_consume_src(${payload}::jsonb)`;
     } catch {
-      /* carton index is a locator; the sale itself already succeeded */
+      /* location index is a locator; the sale itself already succeeded */
     }
 
     // Stamp a human-friendly bill number + address (delivery_method) — best
