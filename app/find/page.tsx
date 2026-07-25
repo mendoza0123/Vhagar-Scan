@@ -7,12 +7,12 @@ import { staffName } from "@/lib/staff";
 
 const Scanner = dynamic(() => import("../sell/Scanner"), { ssr: false });
 
-type Place = { carton: string; location: string | null; qty: number; isRack: boolean };
+type Place = { carton: string; location: string | null; qty: number; isRack: boolean; isDisplay?: boolean };
 type SizeRow = { variant_sku: string; size: string; qty_on_hand: number; places: Place[] };
 type Style = { scanned: string; style_code: string; name: string; sizes: SizeRow[] };
 type Row = {
   carton_id: string; location: string | null; variant_sku: string;
-  name: string; size: string; qty: number; is_rack: boolean;
+  name: string; size: string; qty: number; is_rack: boolean; is_display?: boolean;
 };
 
 const SIZE_SORT = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "4XL"];
@@ -42,7 +42,7 @@ export default function FindPage() {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [place, setPlace] = useState<"all" | "rack" | "box">("all");
+  const [place, setPlace] = useState<"all" | "rack" | "display" | "box">("all");
   const [sizeFil, setSizeFil] = useState<string>("all");
   const [openFam, setOpenFam] = useState<string | null>(null);
   // browse-first: the whole index loads on open so staff see product cards
@@ -124,7 +124,8 @@ export default function FindPage() {
   const families = useMemo(() => {
     const filtered = activeRows.filter(
       (r) =>
-        (place === "all" || (place === "rack" ? r.is_rack : !r.is_rack)) &&
+        (place === "all" ||
+          (place === "rack" ? r.is_rack : place === "display" ? r.is_display : !r.is_rack && !r.is_display)) &&
         (sizeFil === "all" || r.size.toUpperCase() === sizeFil)
     );
     const fams = new Map<string, { total: number; designs: Map<string, Row[]> }>();
@@ -247,7 +248,11 @@ export default function FindPage() {
                         s.places.map((p) => (
                           <span key={p.carton} className="block text-sm">
                             <b className="tabular-nums">{p.qty}</b>{" "}
-                            {p.isRack ? (
+                            {p.isDisplay ? (
+                              <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-violet-800">
+                                on Display
+                              </span>
+                            ) : p.isRack ? (
                               <>
                                 <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-800">
                                   in Rack
@@ -285,8 +290,8 @@ export default function FindPage() {
       {/* ---- filters (only when there are results to filter) ---- */}
       {activeRows.length > 0 && !style && (
         <div className="flex flex-col gap-2">
-          <div className="grid grid-cols-3 gap-2">
-            {([["all", "Everywhere"], ["rack", "On Rack"], ["box", "In cartons"]] as const).map(([v, label]) => (
+          <div className="grid grid-cols-4 gap-2">
+            {([["all", "All"], ["rack", "Rack"], ["display", "Display"], ["box", "Cartons"]] as const).map(([v, label]) => (
               <button
                 key={v}
                 onClick={() => setPlace(v)}
@@ -347,7 +352,11 @@ export default function FindPage() {
                             <li key={`${r.carton_id}-${r.variant_sku}`} className="flex items-center gap-3 py-1.5 text-sm">
                               <span className="w-10 shrink-0 rounded-lg bg-white px-2 py-0.5 text-center font-semibold">{r.size}</span>
                               <span className="min-w-0 flex-1">
-                                {r.is_rack ? (
+                                {r.is_display ? (
+                                  <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-violet-800">
+                                    on Display
+                                  </span>
+                                ) : r.is_rack ? (
                                   <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-800">
                                     in Rack
                                   </span>

@@ -48,14 +48,17 @@ export async function POST(req: NextRequest) {
   if (items.length === 0) return NextResponse.json({ error: "empty" }, { status: 400 });
 
   const by: string | null = body?.by?.toString().trim() || null;
-  const returning = body?.action === "return";
+  const action = body?.action;
 
   try {
-    const rows = returning
-      ? await sql`SELECT rack_return(${JSON.stringify(items)}::jsonb, ${by}) AS r`
-      : await sql`SELECT rack_move(${JSON.stringify(items)}::jsonb, ${by}) AS r`;
-    // move:   { moved, from_cartons, capped } — capped>0 = would exceed stock (double-scan)
-    // return: { returned, skipped, details:[{sku,carton,qty}] }
+    const rows =
+      action === "return"
+        ? await sql`SELECT rack_return(${JSON.stringify(items)}::jsonb, ${by}) AS r`
+        : action === "display"
+        ? await sql`SELECT stage_move(${JSON.stringify(items)}::jsonb, 'DISPLAY', ${by}) AS r`
+        : await sql`SELECT stage_move(${JSON.stringify(items)}::jsonb, 'RACK', ${by}) AS r`;
+    // move/display: { moved, from_cartons, capped } — capped>0 = would exceed stock
+    // return:        { returned, skipped, details:[{sku,carton,qty}] }
     return NextResponse.json(rows[0].r);
   } catch (err: any) {
     const msg: string = err?.message || "";

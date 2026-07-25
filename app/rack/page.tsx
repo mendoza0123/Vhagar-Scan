@@ -48,10 +48,10 @@ export default function RackPage() {
   const [lines, setLines] = useState<Line[]>([]);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [busy, setBusy] = useState(false);
-  // Which way pieces flow: unpack a box onto the rack, or put rack pieces back
-  // into the box they came out of (wrong pull, closing down a display, etc.)
-  const [mode, setMode] = useState<"rack" | "return">("rack");
-  const [done, setDone] = useState<{ kind: "rack"; r: MoveResult } | { kind: "return"; r: ReturnResult } | null>(null);
+  // Which way pieces flow: unpack a box onto the rack (folded), onto the display
+  // (hanging showpieces), or put rack pieces back into the box they came out of.
+  const [mode, setMode] = useState<"rack" | "display" | "return">("rack");
+  const [done, setDone] = useState<{ kind: "rack"; to: "rack" | "display"; r: MoveResult } | { kind: "return"; r: ReturnResult } | null>(null);
 
   const scanState = useRef<Map<string, { lastSeen: number; armed: boolean }>>(new Map());
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,7 +138,7 @@ export default function RackPage() {
         body: JSON.stringify({
           items: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
           by: staffName(), // who did it
-          action: mode === "return" ? "return" : "move",
+          action: mode === "return" ? "return" : mode === "display" ? "display" : "move",
         }),
       });
       const d = await res.json();
@@ -148,7 +148,7 @@ export default function RackPage() {
         return; // keep the list so staff can retry on a flaky hotspot
       }
       feedback(true);
-      setDone(mode === "return" ? { kind: "return", r: d } : { kind: "rack", r: d });
+      setDone(mode === "return" ? { kind: "return", r: d } : { kind: "rack", to: mode as "rack" | "display", r: d });
       setLines([]);
       scanState.current.clear();
     } catch {
@@ -163,30 +163,30 @@ export default function RackPage() {
     <main className="flex min-h-screen flex-col gap-4 p-4 pb-40">
       <header className="flex items-center justify-between">
         <Link href="/" className="text-sm font-medium text-brand">← Home</Link>
-        <h1 className="text-lg font-bold text-brand">Move to Rack</h1>
+        <h1 className="text-lg font-bold text-brand">Move pieces</h1>
         <Link href="/find" className="text-sm text-slate-500">Find</Link>
       </header>
 
       {/* which way the pieces flow */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={() => { setMode("rack"); setDone(null); }}
-          className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${mode === "rack" ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
-        >
-          ➡ To Rack
-        </button>
-        <button
-          onClick={() => { setMode("return"); setDone(null); }}
-          className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${mode === "return" ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
-        >
-          ↩ Back to carton
-        </button>
+      <div className="grid grid-cols-3 gap-2">
+        {([["rack", "🧺 To Rack"], ["display", "👕 To Display"], ["return", "↩ To carton"]] as const).map(([m, label]) => (
+          <button
+            key={m}
+            onClick={() => { setMode(m); setDone(null); }}
+            className={`rounded-xl border px-2 py-2.5 text-sm font-semibold ${mode === m ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <p className="rounded-xl bg-slate-100 p-3 text-xs leading-relaxed text-slate-500">
         {mode === "rack" ? (
-          <>Unpacking a box? Scan every piece, then <b>Move to Rack</b>. This only changes
-          <b> where</b> a piece is — it never changes stock.</>
+          <>Unpacking a box onto the rack? Scan every piece, then <b>Move to Rack</b> (folded stock).
+          Only changes <b>where</b> a piece is — never stock.</>
+        ) : mode === "display" ? (
+          <>Hanging pieces on display? Scan them, then <b>Move to Display</b> — they become the
+          showpieces. Location only; stock never changes.</>
         ) : (
           <>Putting pieces back? Scan them — each goes back into <b>the box it came out of</b>.
           Location only; stock never changes.</>
@@ -208,11 +208,11 @@ export default function RackPage() {
 
       {done && done.kind === "rack" && (
         <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
-          ✅ Moved <b>{done.r.moved}</b> piece{done.r.moved === 1 ? "" : "s"} to the rack
+          ✅ Moved <b>{done.r.moved}</b> piece{done.r.moved === 1 ? "" : "s"} to the {done.to === "display" ? "display" : "rack"}
           {done.r.from_cartons > 0 && <> · {done.r.from_cartons} taken out of carton(s)</>}
           {done.r.capped > 0 && (
             <p className="mt-1 text-amber-800">
-              ⚠ {done.r.capped} skipped — that would put more on the rack than we own
+              ⚠ {done.r.capped} skipped — that would put more on the {done.to === "display" ? "display" : "rack"} than we own
               (already moved, or scanned twice).
             </p>
           )}
@@ -272,7 +272,7 @@ export default function RackPage() {
       {lines.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
           <button onClick={move} disabled={busy} className="btn btn-primary w-full py-4 text-lg disabled:opacity-50">
-            {busy ? "Moving…" : mode === "return" ? `↩ Return ${total} to carton` : `➡ Move ${total} to Rack`}
+            {busy ? "Moving…" : mode === "return" ? `↩ Return ${total} to carton` : mode === "display" ? `👕 Move ${total} to Display` : `🧺 Move ${total} to Rack`}
           </button>
           <button onClick={() => { setLines([]); scanState.current.clear(); }} className="mt-2 w-full text-xs text-slate-400 underline">
             Clear list

@@ -22,13 +22,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bad_pin" }, { status: 401 });
   }
 
-  const sku = body?.sku?.toString().trim().toUpperCase();
   const price = Number(body?.price);
-  if (!sku) return NextResponse.json({ error: "missing_sku" }, { status: 400 });
   if (!Number.isFinite(price) || price <= 0) {
     return NextResponse.json({ error: "bad_price" }, { status: 400 });
   }
 
+  // Whole-style mode {style, price}: price every size of a style at once (the
+  // Price Review fix — "make all of Milano ₹999") and keep the product header
+  // in step. Otherwise the original single-SKU mode {sku, price}.
+  const style = body?.style?.toString().trim().toUpperCase();
+  if (style) {
+    const rows = await sql`
+      UPDATE variants SET price = ${price}, needs_price = FALSE
+       WHERE style_code = ${style}
+      RETURNING variant_sku`;
+    if (rows.length === 0) return NextResponse.json({ error: "unknown_style", style }, { status: 404 });
+    await sql`UPDATE products SET base_price = ${price} WHERE style_code = ${style}`;
+    return NextResponse.json({ style_code: style, price, variants: rows.length });
+  }
+
+  const sku = body?.sku?.toString().trim().toUpperCase();
+  if (!sku) return NextResponse.json({ error: "missing_sku" }, { status: 400 });
   const rows = await sql`
     UPDATE variants
        SET price = ${price}, needs_price = FALSE

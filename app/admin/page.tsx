@@ -128,8 +128,110 @@ export default function AdminPage() {
         </span>
       </Link>
 
+      <PriceReview pin={pin} />
       <PriceSetter pin={pin} />
     </main>
+  );
+}
+
+type PriceStyle = {
+  style_code: string; name: string; min_price: number; max_price: number;
+  variants: number; pieces: number; sizes: { sku: string; size: string; price: number; qty: number }[];
+};
+
+// Catches data-entry price slips (a shirt priced ₹2/₹3/₹4). Lists each style,
+// shows the wrong prices, and lets staff push one correct price to all its sizes.
+function PriceReview({ pin }: { pin: string }) {
+  const [styles, setStyles] = useState<PriceStyle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const res = await fetch("/api/admin/price-review", { cache: "no-store" });
+      const d = await res.json();
+      setStyles(d.styles || []);
+    } catch {
+      setErr("Couldn't load price review.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async (style: string) => {
+    const price = Number(drafts[style]);
+    if (!Number.isFinite(price) || price <= 0) { setErr("Enter a valid price for " + style); return; }
+    setSaving(style);
+    setErr(null);
+    try {
+      const res = await fetch("/api/admin/price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin, style, price }),
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        setErr(e.error === "bad_pin" ? "PIN rejected — re-unlock." : "Save failed.");
+        return;
+      }
+      setStyles((list) => list.filter((s) => s.style_code !== style));
+    } catch {
+      setErr("Network error — try again.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  if (loading) return null;
+  if (styles.length === 0) return null; // nothing wrong → don't clutter admin
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        ⚠ Price review ({styles.length} look wrong)
+      </h2>
+      <p className="-mt-1 text-xs text-slate-400">
+        These styles have a price under ₹100 — almost certainly a typo. Set the right price for all sizes.
+      </p>
+      {err && <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">{err}</div>}
+
+      {styles.map((s) => (
+        <div key={s.style_code} className="rounded-2xl border border-rose-300 bg-white p-3 shadow-sm">
+          <p className="font-semibold">{s.name}</p>
+          <p className="text-xs text-slate-400">{s.style_code} · {s.pieces} pcs</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {s.sizes.map((z) => (
+              <span key={z.sku} className="rounded-lg bg-rose-50 px-2 py-0.5 text-xs">
+                {z.size} <b className="text-rose-700">{money(z.price)}</b>
+              </span>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-slate-400">₹</span>
+            <input
+              value={drafts[s.style_code] ?? ""}
+              onChange={(e) =>
+                /^\d*\.?\d*$/.test(e.target.value) &&
+                setDrafts((d) => ({ ...d, [s.style_code]: e.target.value }))
+              }
+              inputMode="decimal"
+              placeholder="new price"
+              className="w-28 rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:border-brand"
+            />
+            <button
+              onClick={() => save(s.style_code)}
+              disabled={saving === s.style_code}
+              className="btn btn-primary ml-auto px-5 py-2 disabled:opacity-50"
+            >
+              {saving === s.style_code ? "Saving…" : `Set all ${s.variants}`}
+            </button>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
 
