@@ -175,7 +175,7 @@ export async function GET(req: NextRequest) {
                 FROM sale_items si WHERE si.sale_id = s.id
                  AND (si.name ILIKE ${qLike} OR si.variant_sku ILIKE ${qLike} OR si.size = ${qSize})) AS matched
       FROM sales s
-      WHERE NOT s.is_test
+      WHERE NOT s.is_test AND s.status = 'completed'
         AND (s.bill_no ILIKE ${qLike} OR s.customer_name ILIKE ${qLike}
              OR s.customer_phone ILIKE ${qLike} OR s.sold_by ILIKE ${qLike}
              OR EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id
@@ -194,9 +194,8 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Voided bills STAY in the log (marked void) — a bill that vanishes is a bill
-  // nobody can account for. They're excluded from the totals below.
-  // Test bills never appear at all.
+  // Voided bills are hidden from the POS log entirely (kept in IMS Void History
+  // for the record). Test bills never appear here either.
   const todayOnly = date === "today";
   const rows = todayOnly
     ? await sql`
@@ -207,7 +206,7 @@ export async function GET(req: NextRequest) {
         FROM sales s
         WHERE (s.created_at AT TIME ZONE 'Asia/Kolkata')::date
               = (now() AT TIME ZONE 'Asia/Kolkata')::date
-          AND NOT s.is_test
+          AND NOT s.is_test AND s.status = 'completed'
         ORDER BY s.id DESC`
     : await sql`
         SELECT s.id, s.bill_no, s.subtotal::float8 AS subtotal,
@@ -215,7 +214,7 @@ export async function GET(req: NextRequest) {
                s.payment_method, s.customer_name, s.sold_by, s.status, s.created_at,
                (SELECT count(*)::int FROM sale_items si WHERE si.sale_id = s.id) AS item_count
         FROM sales s
-        WHERE NOT s.is_test
+        WHERE NOT s.is_test AND s.status = 'completed'
         ORDER BY s.id DESC
         LIMIT 200`;
 
