@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sql } from "@/lib/db";
 
 // Live stock + product photos from the Vhagar IMS (Google Apps Script web app).
 // MUST be server-side: GAS sets no CORS headers and /exec 302-redirects to
@@ -77,6 +78,22 @@ export async function GET() {
         image_url: p.image_id ? `https://lh3.googleusercontent.com/d/${p.image_id}=s400` : null,
       };
     }
+    // Photos are managed in the NEW IMS (Neon products.image_url) — that's where
+    // staff re-upload/correct them. Let Neon's photo WIN over the legacy GAS
+    // image_id so a corrected picture shows here. GAS still owns the all-channels
+    // stock counts. ponytail: overlay only onto styles GAS returned; a style that
+    // exists only in the new IMS gets no photo until GAS lists it — fix by moving
+    // stock counts off GAS if that ever happens.
+    try {
+      const photos = await sql`SELECT style_code, image_url FROM products WHERE image_url IS NOT NULL`;
+      for (const p of photos) {
+        const code = normCode(p.style_code);
+        if (styles[code] && p.image_url) styles[code].image_url = String(p.image_url);
+      }
+    } catch (e) {
+      console.error("IMS /api/ims: Neon photo overlay failed", (e as Error)?.message);
+    }
+
     return NextResponse.json({ ok: true, generated_at: data.generated_at ?? null, styles });
   } catch (e) {
     console.error("IMS /api/ims: fetch failed", (e as Error)?.message);
