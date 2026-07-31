@@ -32,6 +32,20 @@ function splitFamily(name: string): { family: string; design: string } {
   return { family: family.toUpperCase(), design: tokens.slice(i).join(" ") || "—" };
 }
 
+// Tiny pencil affordance shown on every location line (Rack / Display / carton)
+// to open the move sheet.
+function EditBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="ml-1.5 shrink-0 rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-500 active:bg-slate-100"
+      aria-label="Move this piece"
+    >
+      ✎
+    </button>
+  );
+}
+
 // Where is it? Scan the hanging display piece → the whole style, per size,
 // and whether each size is on the Rack or still boxed.
 export default function FindPage() {
@@ -49,10 +63,11 @@ export default function FindPage() {
   // without typing; 5 at a time, A→Z, "More" reveals the rest.
   const [browseRows, setBrowseRows] = useState<Row[]>([]);
   const [visFam, setVisFam] = useState(5);
-  // rack-line editor (reduce / back to origin / into a chosen box)
-  const [editing, setEditing] = useState<{ sku: string; name: string; size: string; qty: number } | null>(null);
+  // location editor — move a line between Rack / Display / a carton, any direction.
+  // `from` is the source container: 'RACK' | 'DISPLAY' | a carton_no.
+  const [editing, setEditing] = useState<{ sku: string; name: string; size: string; qty: number; from: string } | null>(null);
   const [editQty, setEditQty] = useState(1);
-  const [editDest, setEditDest] = useState<"origin" | "remove" | "pick">("origin");
+  const [editDest, setEditDest] = useState<"RACK" | "DISPLAY" | "pick" | "off" | "origin">("RACK");
   const [editBox, setEditBox] = useState("");
   const [boxes, setBoxes] = useState<string[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -143,11 +158,13 @@ export default function FindPage() {
 
   const visibleFams = browsing ? families.slice(0, visFam) : families;
 
-  // ---- rack-line editor ----
-  const openEdit = async (sku: string, name: string, size: string, qty: number) => {
-    setEditing({ sku, name, size, qty });
+  // ---- location editor ----
+  const openEdit = async (sku: string, name: string, size: string, qty: number, from: string) => {
+    setEditing({ sku, name, size, qty, from });
     setEditQty(1);
-    setEditDest("origin");
+    // sensible default destination: rack keeps its "back to origin", staged/boxed
+    // pieces default to the rack (the usual "bring it out front" move).
+    setEditDest(from === "RACK" ? "origin" : "RACK");
     setEditBox("");
     if (boxes.length === 0) {
       try {
@@ -163,10 +180,12 @@ export default function FindPage() {
     setSavingEdit(true);
     setErr(null);
     try {
+      const to =
+        editDest === "pick" ? editBox : editDest === "off" ? null : editDest; // 'RACK' | 'DISPLAY' | box | null(off)
       const body =
         editDest === "origin"
           ? { action: "return", items: [{ sku: editing.sku, qty: editQty }], by: staffName() }
-          : { action: "adjust", sku: editing.sku, qty: editQty, target: editDest === "pick" ? editBox : null, by: staffName() };
+          : { action: "relocate", sku: editing.sku, qty: editQty, from: editing.from, to, by: staffName() };
       const res = await fetch("/api/rack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -249,26 +268,24 @@ export default function FindPage() {
                           <span key={p.carton} className="block text-sm">
                             <b className="tabular-nums">{p.qty}</b>{" "}
                             {p.isDisplay ? (
-                              <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-violet-800">
-                                on Display
-                              </span>
+                              <>
+                                <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-violet-800">
+                                  on Display
+                                </span>
+                                <EditBtn onClick={() => openEdit(s.variant_sku, style.name, s.size, p.qty, "DISPLAY")} />
+                              </>
                             ) : p.isRack ? (
                               <>
                                 <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-800">
                                   in Rack
                                 </span>
-                                <button
-                                  onClick={() => openEdit(s.variant_sku, style.name, s.size, p.qty)}
-                                  className="ml-1.5 rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-500 active:bg-slate-100"
-                                  aria-label="Edit this rack line"
-                                >
-                                  ✎
-                                </button>
+                                <EditBtn onClick={() => openEdit(s.variant_sku, style.name, s.size, p.qty, "RACK")} />
                               </>
                             ) : (
                               <>
                                 in <span className="font-semibold text-brand">{p.carton}</span>
                                 {p.location && <span className="text-xs text-slate-400"> · {p.location}</span>}
+                                <EditBtn onClick={() => openEdit(s.variant_sku, style.name, s.size, p.qty, p.carton)} />
                               </>
                             )}
                           </span>
@@ -368,15 +385,11 @@ export default function FindPage() {
                                 )}
                               </span>
                               <span className="shrink-0 font-semibold tabular-nums">×{r.qty}</span>
-                              {r.is_rack && (
-                                <button
-                                  onClick={() => openEdit(r.variant_sku, r.name, r.size, r.qty)}
-                                  className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 active:bg-slate-100"
-                                  aria-label="Edit this rack line"
-                                >
-                                  ✎
-                                </button>
-                              )}
+                              <EditBtn
+                                onClick={() =>
+                                  openEdit(r.variant_sku, r.name, r.size, r.qty, r.is_rack ? "RACK" : r.is_display ? "DISPLAY" : r.carton_id)
+                                }
+                              />
                             </li>
                           ))}
                         </ul>
@@ -417,13 +430,22 @@ export default function FindPage() {
         </p>
       )}
 
-      {/* ---- rack-line editor: reduce / back to origin / into a chosen box ---- */}
-      {editing && (
+      {/* ---- location editor: move a piece between Rack / Display / a carton ---- */}
+      {editing && (() => {
+        const from = editing.from;
+        const srcLabel = from === "RACK" ? "the rack" : from === "DISPLAY" ? "display" : from;
+        const btn = (active: boolean, danger = false) =>
+          `rounded-xl border px-4 py-2.5 text-left text-sm font-medium ${
+            active
+              ? danger ? "border-rose-500 bg-rose-500 text-white" : "border-brand bg-brand text-white"
+              : "border-slate-200 bg-white text-slate-600"
+          }`;
+        return (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setEditing(null)}>
           <div className="w-full max-w-md rounded-t-3xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-brand">Edit rack line</h3>
+            <h3 className="text-lg font-bold text-brand">Move piece</h3>
             <p className="text-sm text-slate-500">
-              {editing.name} · <b>{editing.size}</b> — {editing.qty} on the rack
+              {editing.name} · <b>{editing.size}</b> — {editing.qty} on {srcLabel}
             </p>
 
             <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">How many</p>
@@ -446,17 +468,23 @@ export default function FindPage() {
 
             <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Where to</p>
             <div className="mt-1 flex flex-col gap-2">
-              <button
-                onClick={() => setEditDest("origin")}
-                className={`rounded-xl border px-4 py-2.5 text-left text-sm font-medium ${editDest === "origin" ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
-              >
-                ↩ Back to its own box (auto)
-              </button>
-              <button
-                onClick={() => setEditDest("pick")}
-                className={`rounded-xl border px-4 py-2.5 text-left text-sm font-medium ${editDest === "pick" ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
-              >
-                📦 Into another box…
+              {from === "RACK" && (
+                <button onClick={() => setEditDest("origin")} className={btn(editDest === "origin")}>
+                  ↩ Back to its own box (auto)
+                </button>
+              )}
+              {from !== "RACK" && (
+                <button onClick={() => setEditDest("RACK")} className={btn(editDest === "RACK")}>
+                  🧥 Onto the Rack
+                </button>
+              )}
+              {from !== "DISPLAY" && (
+                <button onClick={() => setEditDest("DISPLAY")} className={btn(editDest === "DISPLAY")}>
+                  ✨ Onto Display
+                </button>
+              )}
+              <button onClick={() => setEditDest("pick")} className={btn(editDest === "pick")}>
+                📦 Into a carton…
               </button>
               {editDest === "pick" && (
                 <select
@@ -465,16 +493,13 @@ export default function FindPage() {
                   className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base outline-none focus:border-brand"
                 >
                   <option value="">Choose a carton…</option>
-                  {boxes.map((b) => (
+                  {boxes.filter((b) => b !== from).map((b) => (
                     <option key={b} value={b}>{b}</option>
                   ))}
                 </select>
               )}
-              <button
-                onClick={() => setEditDest("remove")}
-                className={`rounded-xl border px-4 py-2.5 text-left text-sm font-medium ${editDest === "remove" ? "border-rose-500 bg-rose-500 text-white" : "border-slate-200 bg-white text-slate-600"}`}
-              >
-                ✕ Take off the rack (count correction)
+              <button onClick={() => setEditDest("off")} className={btn(editDest === "off", true)}>
+                ✕ Take off {srcLabel} (count correction)
               </button>
             </div>
             <p className="mt-2 text-xs text-slate-400">Location only — stock never changes here.</p>
@@ -491,7 +516,8 @@ export default function FindPage() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </main>
   );
 }

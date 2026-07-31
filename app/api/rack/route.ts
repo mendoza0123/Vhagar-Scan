@@ -19,6 +19,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bad_json" }, { status: 400 });
   }
 
+  // Free relocation between any two booth containers (Rack / Display / a Packed
+  // carton). { action:"relocate", sku, qty, from, to } — to null/"off" = take off
+  // the index. LOCATION only; loc_move never touches qty_on_hand.
+  if (body?.action === "relocate") {
+    const sku = body?.sku?.toString().trim().toUpperCase();
+    const qty = Math.trunc(Number(body?.qty));
+    const from = body?.from?.toString().trim().toUpperCase();
+    const toRaw = body?.to == null ? "" : body.to.toString().trim();
+    const to = toRaw || null; // null => off the index
+    const relBy = body?.by?.toString().trim() || null;
+    if (!sku) return NextResponse.json({ error: "missing_sku" }, { status: 400 });
+    if (!from) return NextResponse.json({ error: "missing_from" }, { status: 400 });
+    if (!Number.isFinite(qty) || qty < 1) return NextResponse.json({ error: "bad_qty" }, { status: 400 });
+    try {
+      const rows = await sql`SELECT loc_move(${sku}, ${qty}, ${from}, ${to}, ${relBy}) AS r`;
+      return NextResponse.json(rows[0].r); // { moved, from, to }
+    } catch (err: any) {
+      const message = String(err?.message || "Could not move.").replace(/^.*?:\s*/, "").trim();
+      return NextResponse.json({ error: "relocate_failed", message }, { status: 400 });
+    }
+  }
+
   if (body?.action === "adjust") {
     const sku = body?.sku?.toString().trim().toUpperCase();
     const qty = Math.trunc(Number(body?.qty));
