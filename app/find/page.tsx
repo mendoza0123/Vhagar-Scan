@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { staffName } from "@/lib/staff";
+import { matchesType, type ProductType } from "@/lib/product-type";
 
 const Scanner = dynamic(() => import("../sell/Scanner"), { ssr: false });
 
@@ -13,6 +14,7 @@ type Style = { scanned: string; style_code: string; name: string; sizes: SizeRow
 type Row = {
   carton_id: string; location: string | null; variant_sku: string;
   name: string; size: string; qty: number; is_rack: boolean; is_display?: boolean;
+  category?: string | null;
 };
 
 const SIZE_SORT = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "4XL"];
@@ -57,6 +59,7 @@ export default function FindPage() {
   const [searched, setSearched] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [place, setPlace] = useState<"all" | "rack" | "display" | "box">("all");
+  const [typeFil, setTypeFil] = useState<"all" | ProductType>("all");
   const [sizeFil, setSizeFil] = useState<string>("all");
   const [openFam, setOpenFam] = useState<string | null>(null);
   // browse-first: the whole index loads on open so staff see product cards
@@ -141,6 +144,7 @@ export default function FindPage() {
       (r) =>
         (place === "all" ||
           (place === "rack" ? r.is_rack : place === "display" ? r.is_display : !r.is_rack && !r.is_display)) &&
+        matchesType(typeFil, r.category) &&
         (sizeFil === "all" || r.size.toUpperCase() === sizeFil)
     );
     const fams = new Map<string, { total: number; designs: Map<string, Row[]> }>();
@@ -154,7 +158,7 @@ export default function FindPage() {
       fams.set(family, f);
     }
     return Array.from(fams.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [activeRows, place, sizeFil]);
+  }, [activeRows, place, typeFil, sizeFil]);
 
   const visibleFams = browsing ? families.slice(0, visFam) : families;
 
@@ -313,6 +317,17 @@ export default function FindPage() {
                 key={v}
                 onClick={() => setPlace(v)}
                 className={`rounded-xl border px-2 py-2 text-sm font-medium ${place === v ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {([["all", "All types"], ["shirt", "Shirts"], ["tshirt", "T-shirts"]] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setTypeFil(v)}
+                className={`rounded-xl border px-2 py-2 text-sm font-medium ${typeFil === v ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
               >
                 {label}
               </button>

@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
   if (q.length < 2) return NextResponse.json({ results: [] });
   const like = `%${q}%`;
   const results = await sql`
-    SELECT carton_id, location, variant_sku, name, size, qty,
+    SELECT carton_id, location, variant_sku, name, size, qty, category,
            status = 'Rack' AS is_rack, status = 'Display' AS is_display
     FROM v_carton_contents
     WHERE status IN ('Packed', 'Rack', 'Display')

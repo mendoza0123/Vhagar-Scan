@@ -3,6 +3,7 @@
 import { createElement, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { money } from "@/lib/format";
+import { matchesType, type ProductType } from "@/lib/product-type";
 
 type StockRow = {
   variant_sku: string;
@@ -45,6 +46,7 @@ const IMS_REFRESH_MS = 20000;   // IMS live (all-channels) stock poll — GAS ca
 export default function StockPage() {
   const [rows, setRows] = useState<StockRow[]>([]);
   const [query, setQuery] = useState("");
+  const [typeFil, setTypeFil] = useState<"all" | ProductType>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
@@ -116,15 +118,15 @@ export default function StockPage() {
 
   const groups = useMemo<Group[]>(() => {
     const q = query.trim().toLowerCase();
-    const filtered = q
-      ? rows.filter(
-          (r) =>
-            r.name.toLowerCase().includes(q) ||
-            r.variant_sku.toLowerCase().includes(q) ||
-            r.style_code.toLowerCase().includes(q) ||
-            (r.category || "").toLowerCase().includes(q)
-        )
-      : rows;
+    const filtered = rows.filter(
+      (r) =>
+        matchesType(typeFil, r.category) &&
+        (!q ||
+          r.name.toLowerCase().includes(q) ||
+          r.variant_sku.toLowerCase().includes(q) ||
+          r.style_code.toLowerCase().includes(q) ||
+          (r.category || "").toLowerCase().includes(q))
+    );
 
     const map = new Map<string, Group>();
     for (const r of filtered) {
@@ -147,7 +149,7 @@ export default function StockPage() {
     arr.forEach((g) => g.rows.sort((a, b) => sizeRank(a.size) - sizeRank(b.size)));
     arr.sort((a, b) => a.name.localeCompare(b.name));
     return arr;
-  }, [rows, query]);
+  }, [rows, query, typeFil]);
 
   const totals = useMemo(() => {
     const pieces = rows.reduce((s, r) => s + r.qty_on_hand, 0);
@@ -185,6 +187,18 @@ export default function StockPage() {
         placeholder="Search style, SKU, category…"
         className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-brand"
       />
+
+      <div className="grid grid-cols-3 gap-2">
+        {([["all", "All"], ["shirt", "Shirts"], ["tshirt", "T-shirts"]] as const).map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => setTypeFil(v)}
+            className={`rounded-xl border px-2 py-2 text-sm font-medium ${typeFil === v ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       {loading ? (
         <p className="py-10 text-center text-sm text-slate-400">Loading stock…</p>

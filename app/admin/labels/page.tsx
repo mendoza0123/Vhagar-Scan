@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { matchesType, type ProductType } from "@/lib/product-type";
 
 type StockRow = {
   variant_sku: string;
@@ -77,6 +78,7 @@ export default function LabelsPage() {
   // what to print
   const [styleCode, setStyleCode] = useState("all");
   const [category, setCategory] = useState("all");
+  const [type, setType] = useState<"all" | ProductType>("all");
   const [qtyMode, setQtyMode] = useState<QtyMode>("perPiece");
   const [customCopies, setCustomCopies] = useState(1);
   const [sizeSel, setSizeSel] = useState<Set<string>>(new Set()); // empty = all sizes
@@ -136,7 +138,8 @@ export default function LabelsPage() {
         (useManual
           ? manual.has(r.style_code)
           : (styleCode === "all" || r.style_code === styleCode) &&
-            (category === "all" || r.category === category)) &&
+            (category === "all" || r.category === category) &&
+            matchesType(type, r.category)) &&
         // size filter — active whenever exactly one style is selected (via the
         // Style dropdown OR a single manual tick)
         (sizeSel.size === 0 || sizeSel.has(r.size))
@@ -149,7 +152,7 @@ export default function LabelsPage() {
       for (let i = 0; i < n; i++) out.push({ key: `${r.variant_sku}-${i}`, row: r });
     }
     return out;
-  }, [rows, styleCode, category, qtyMode, customCopies, manual, sizeSel]);
+  }, [rows, styleCode, category, type, qtyMode, customCopies, manual, sizeSel]);
 
   // The size filter works when exactly ONE style is selected — either via the
   // Style dropdown, or a single tick in the manual picker.
@@ -413,7 +416,7 @@ export default function LabelsPage() {
         </div>
 
         {/* filters */}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <label className="text-xs text-slate-500">
             Style
             <select
@@ -442,6 +445,18 @@ export default function LabelsPage() {
                   {c}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="text-xs text-slate-500">
+            Type
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as "all" | ProductType)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm"
+            >
+              <option value="all">Shirts &amp; T-shirts</option>
+              <option value="shirt">Shirts only</option>
+              <option value="tshirt">T-shirts only</option>
             </select>
           </label>
         </div>
