@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   //      card list on /find. ~a few hundred small rows; fine on the hotspot.
   if (req.nextUrl.searchParams.get("browse")) {
     const results = await sql`
-      SELECT carton_id, location, variant_sku, name, size, qty,
+      SELECT carton_id, location, variant_sku, name, size, qty, category,
              status = 'Rack' AS is_rack, status = 'Display' AS is_display
       FROM v_carton_contents
       WHERE status IN ('Packed', 'Rack', 'Display')
