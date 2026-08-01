@@ -11,10 +11,14 @@ export async function GET(
   { params }: { params: { sku: string } }
 ) {
   noStore();
-  const sku = decodeURIComponent(params.sku || "").trim().toUpperCase();
-  if (!sku) {
+  const scanned = decodeURIComponent(params.sku || "").trim().toUpperCase();
+  if (!scanned) {
     return NextResponse.json({ error: "missing_sku" }, { status: 400 });
   }
+  // A scanned code may be a per-piece t-shirt unit (VH-TEE1-M-0001) or a plain
+  // variant QR — variant_of() resolves the former to its variant, passes the
+  // latter through, so pricing/stock stay identical for both.
+  const [{ sku }] = await sql`SELECT variant_of(${scanned}) AS sku`;
 
   const rows = await sql`
     SELECT variant_sku, style_code, name, color, size,

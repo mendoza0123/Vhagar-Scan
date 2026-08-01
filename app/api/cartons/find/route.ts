@@ -15,7 +15,9 @@ const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "4XL", "FREE
 //   ?q=lio linen    → the older text search (which box holds a product).
 export async function GET(req: NextRequest) {
   noStore();
-  const sku = req.nextUrl.searchParams.get("sku")?.trim().toUpperCase() || "";
+  const scanned = req.nextUrl.searchParams.get("sku")?.trim().toUpperCase() || "";
+  // resolve a per-piece t-shirt unit code to its variant; plain QRs pass through
+  const sku = scanned ? (await sql`SELECT variant_of(${scanned}) AS sku`)[0].sku : "";
 
   // ---- scan mode: one tag in, the whole style out ----
   if (sku) {

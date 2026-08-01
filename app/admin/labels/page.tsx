@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { matchesType, type ProductType } from "@/lib/product-type";
+import { matchesType, isTshirt, type ProductType } from "@/lib/product-type";
 
 type StockRow = {
   variant_sku: string;
@@ -87,6 +87,8 @@ export default function LabelsPage() {
 
   // QR cache (keyed by sku + pixel size so resizing regenerates)
   const [qrMap, setQrMap] = useState<Record<string, string>>({});
+  // per-piece unit codes for t-shirt variants (each physical tee = one unique QR)
+  const [unitsByVariant, setUnitsByVariant] = useState<Record<string, string[]>>({});
   const [generating, setGenerating] = useState(false);
   const qrCache = useRef<Map<string, string>>(new Map());
 
@@ -112,6 +114,19 @@ export default function LabelsPage() {
   const qrPx = Math.max(96, Math.round(qrMM * 8)); // 8 dots/mm @ 203 dpi
   // Base font scales with the label's shorter side: ~5.5pt on a 25mm tag → ~10pt on a 45mm tag.
   const basePt = Math.max(5, Math.min(16, Math.round(Math.min(labelW, labelH) * 0.22 * 10) / 10));
+
+  // fetch per-piece unit codes for the t-shirt variants in view, so tees print
+  // one unique sticker each (shirts have no units → unchanged copy behaviour).
+  useEffect(() => {
+    const teeSkus = Array.from(new Set(rows.filter((r) => isTshirt(r.category)).map((r) => r.variant_sku)));
+    if (teeSkus.length === 0) { setUnitsByVariant({}); return; }
+    let cancelled = false;
+    fetch(`/api/units?skus=${encodeURIComponent(teeSkus.join(","))}`)
+      .then((r) => (r.ok ? r.json() : { units: {} }))
+      .then((d) => { if (!cancelled) setUnitsByVariant(d.units || {}); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [rows]);
 
   const styles = useMemo(() => {
     const m = new Map<string, string>();
@@ -146,13 +161,20 @@ export default function LabelsPage() {
     );
     const copiesOf = (r: StockRow) =>
       qtyMode === "perPiece" ? r.qty_on_hand : qtyMode === "perSku" ? 1 : Math.max(1, customCopies);
-    const out: { key: string; row: StockRow }[] = [];
+    const out: { key: string; row: StockRow; code: string }[] = [];
     for (const r of filtered) {
-      const n = copiesOf(r);
-      for (let i = 0; i < n; i++) out.push({ key: `${r.variant_sku}-${i}`, row: r });
+      const units = unitsByVariant[r.variant_sku];
+      if (isTshirt(r.category) && units && units.length) {
+        // t-shirt: one unique sticker per physical piece (QR = unit code)
+        for (const code of units) out.push({ key: code, row: r, code });
+      } else {
+        // shirt (or a tee with no minted units yet): N identical copies of the SKU QR
+        const n = copiesOf(r);
+        for (let i = 0; i < n; i++) out.push({ key: `${r.variant_sku}-${i}`, row: r, code: r.variant_sku });
+      }
     }
     return out;
-  }, [rows, styleCode, category, type, qtyMode, customCopies, manual, sizeSel]);
+  }, [rows, styleCode, category, type, qtyMode, customCopies, manual, sizeSel, unitsByVariant]);
 
   // The size filter works when exactly ONE style is selected — either via the
   // Style dropdown, or a single tick in the manual picker.
@@ -185,15 +207,15 @@ export default function LabelsPage() {
   }, [manualQuery, styles]);
   const allShownSelected = manualFiltered.length > 0 && manualFiltered.every((s) => manual.has(s.code));
 
-  const uniqueSkus = useMemo(
-    () => Array.from(new Set(stickers.map((s) => s.row.variant_sku))),
+  const uniqueCodes = useMemo(
+    () => Array.from(new Set(stickers.map((s) => s.code))),
     [stickers]
   );
 
   // generate any QR codes we don't have at the current pixel size (cached)
   useEffect(() => {
     const keyOf = (s: string) => `${s}@${qrPx}`;
-    const missing = uniqueSkus.filter((s) => !qrCache.current.has(keyOf(s)));
+    const missing = uniqueCodes.filter((s) => !qrCache.current.has(keyOf(s)));
     if (missing.length === 0) {
       setQrMap(Object.fromEntries(qrCache.current));
       return;
@@ -202,16 +224,16 @@ export default function LabelsPage() {
     (async () => {
       setGenerating(true);
       const QRCode = (await import("qrcode")).default;
-      for (const sku of missing) {
+      for (const code of missing) {
         if (cancelled) return;
         try {
-          const url = await QRCode.toDataURL(sku, {
+          const url = await QRCode.toDataURL(code, {
             margin: 4, // generous quiet zone for thermal fade
             width: qrPx,
             errorCorrectionLevel: "M",
             color: { dark: "#000000", light: "#FFFFFF" },
           });
-          qrCache.current.set(keyOf(sku), url);
+          qrCache.current.set(keyOf(code), url);
         } catch {
           /* skip */
         }
@@ -224,7 +246,7 @@ export default function LabelsPage() {
     return () => {
       cancelled = true;
     };
-  }, [uniqueSkus, qrPx]);
+  }, [uniqueCodes, qrPx]);
 
   // inject the runtime stylesheet (hydration-safe: client-only, one <style> node)
   useEffect(() => {
@@ -251,13 +273,13 @@ export default function LabelsPage() {
   useEffect(() => () => document.getElementById("label-print-css")?.remove(), []);
 
   const qrFor = (sku: string) => qrMap[`${sku}@${qrPx}`];
-  const ready = uniqueSkus.every((s) => qrFor(s));
+  const ready = uniqueCodes.every((s) => qrFor(s));
 
   // A4 pagination (deterministic page breaks)
   const perPage = Math.max(1, a4Cols * a4Rows);
   const pages = useMemo(() => {
     if (mediaMode !== "a4") return [];
-    const out: { key: string; row: StockRow }[][] = [];
+    const out: { key: string; row: StockRow; code: string }[][] = [];
     for (let i = 0; i < stickers.length; i += perPage) out.push(stickers.slice(i, i + perPage));
     return out;
   }, [stickers, perPage, mediaMode]);
@@ -580,7 +602,7 @@ export default function LabelsPage() {
 
         {generating && (
           <p className="text-center text-xs text-slate-400">
-            Generating QR codes… ({uniqueSkus.filter((s) => qrFor(s)).length}/{uniqueSkus.length})
+            Generating QR codes… ({uniqueCodes.filter((s) => qrFor(s)).length}/{uniqueCodes.length})
           </p>
         )}
         {loading && <p className="text-center text-sm text-slate-400">Loading stock…</p>}
@@ -599,7 +621,7 @@ export default function LabelsPage() {
               Labels print in a {a4Cols}-column grid; cut along the dashed guides.
             </p>
           )}
-          <p className="mt-1">Colour is printed as a word (thermal is black-and-white). QR encodes the SKU.</p>
+          <p className="mt-1">Colour is printed as a word (thermal is black-and-white). QR encodes the SKU — or a unique per-piece code for t-shirts.</p>
         </div>
       </div>
 
@@ -608,9 +630,9 @@ export default function LabelsPage() {
         <div className="print-area">
           {mediaMode === "roll" ? (
             <div className="flex flex-col items-start gap-1 print:gap-0">
-              {stickers.map(({ key, row }) => (
+              {stickers.map(({ key, row, code }) => (
                 <div key={key} className="qr-label">
-                  <LabelContent row={row} qrUrl={qrFor(row.variant_sku)} horizontal={horizontal} qrMM={qrMM} />
+                  <LabelContent row={row} code={code} qrUrl={qrFor(code)} horizontal={horizontal} qrMM={qrMM} />
                 </div>
               ))}
             </div>
@@ -618,11 +640,12 @@ export default function LabelsPage() {
             pages.map((page, pi) => (
               <section key={pi} className="sheet mb-4 print:mb-0">
                 <div className="label-grid">
-                  {page.map(({ key, row }) => (
+                  {page.map(({ key, row, code }) => (
                     <div key={key} className="qr-label">
                       <LabelContent
                         row={row}
-                        qrUrl={qrFor(row.variant_sku)}
+                        code={code}
+                        qrUrl={qrFor(code)}
                         horizontal={horizontal}
                         qrMM={qrMM}
                       />
@@ -641,11 +664,13 @@ export default function LabelsPage() {
 // ---------- one label's content (mono, text-only colour) ----------
 function LabelContent({
   row,
+  code,
   qrUrl,
   horizontal,
   qrMM,
 }: {
   row: StockRow;
+  code: string;
   qrUrl?: string;
   horizontal: boolean;
   qrMM: number;
@@ -659,7 +684,7 @@ function LabelContent({
   );
   const qr = qrUrl ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={qrUrl} alt={row.variant_sku} className="shrink-0" />
+    <img src={qrUrl} alt={code} className="shrink-0" />
   ) : (
     placeholder
   );
@@ -682,7 +707,7 @@ function LabelContent({
       </p>
       {row.color && <p className="text-[0.82em] text-black">{row.color}</p>}
       <p className="text-[0.82em] text-black">Size {row.size}</p>
-      <p className="text-[0.82em] text-black">{row.variant_sku}</p>
+      <p className="text-[0.82em] text-black">{code}</p>
     </div>
   );
 
