@@ -28,10 +28,14 @@ export async function GET(
   }
   const sale = saleRows[0] as any;
 
+  // image_url is joined live so a bill can be recognised visually when tallying
   const items = await sql`
-    SELECT variant_sku, name, size, unit_price::float8 AS unit_price,
-           qty, line_total::float8 AS line_total
-    FROM sale_items WHERE sale_id = ${id} ORDER BY id`;
+    SELECT si.variant_sku, si.name, si.size, si.unit_price::float8 AS unit_price,
+           si.qty, si.line_total::float8 AS line_total, p.image_url
+    FROM sale_items si
+    LEFT JOIN variants v ON v.variant_sku = si.variant_sku
+    LEFT JOIN products p ON p.style_code = v.style_code
+    WHERE si.sale_id = ${id} ORDER BY si.id`;
 
   return NextResponse.json({
     ...sale,

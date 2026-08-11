@@ -40,6 +40,7 @@ type SaleItem = {
   unit_price: number;
   qty: number;
   line_total: number;
+  image_url: string | null;
 };
 
 async function getSale(id: number) {
@@ -51,10 +52,15 @@ async function getSale(id: number) {
     FROM sales WHERE id = ${id}`;
   if (rows.length === 0) return null;
   const sale = rows[0] as any;
+  // The photo is joined live (not snapshotted) so a later/better product shot
+  // shows on an old bill too. The bill TEXT stays the snapshot taken at sale time.
   const items = (await sql`
-    SELECT variant_sku, name, size, unit_price::float8 AS unit_price,
-           qty, line_total::float8 AS line_total
-    FROM sale_items WHERE sale_id = ${id} ORDER BY id`) as SaleItem[];
+    SELECT si.variant_sku, si.name, si.size, si.unit_price::float8 AS unit_price,
+           si.qty, si.line_total::float8 AS line_total, p.image_url
+    FROM sale_items si
+    LEFT JOIN variants v ON v.variant_sku = si.variant_sku
+    LEFT JOIN products p ON p.style_code = v.style_code
+    WHERE si.sale_id = ${id} ORDER BY si.id`) as SaleItem[];
   return { ...sale, items };
 }
 
@@ -104,6 +110,46 @@ export default async function BillPage({ params }: { params: { id: string } }) {
         <Link href="/sales" className="text-sm font-medium text-brand">← Sales</Link>
         <Link href="/" className="text-sm text-slate-500">Home</Link>
       </header>
+
+      {/* ---------- WHAT SOLD (screen only — never printed, never in the PDF) ----------
+          End-of-day tallying reads a list of style codes and can't picture the
+          garment. This is the visual check; the bill document below is unchanged. */}
+      {sale.items.length > 0 && (
+        <section className="mx-auto w-full max-w-[820px] rounded-2xl border border-slate-200 bg-white p-3 shadow-sm print:hidden">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            What sold · {sale.items.reduce((n: number, l: SaleItem) => n + l.qty, 0)} pc
+            {sale.items.reduce((n: number, l: SaleItem) => n + l.qty, 0) === 1 ? "" : "s"}
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+            {sale.items.map((l: SaleItem) => (
+              <div key={l.variant_sku} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2">
+                <div className="relative h-16 w-14 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                  {l.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={l.image_url} alt={l.name} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center text-xl font-bold text-slate-300">
+                      {(l.name || "?").charAt(0)}
+                    </span>
+                  )}
+                  {l.qty > 1 && (
+                    <span className="absolute right-0.5 top-0.5 rounded bg-black/70 px-1 text-[10px] font-bold text-white">
+                      ×{l.qty}
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold leading-tight text-slate-800">{l.name}</p>
+                  <p className="text-[11px] text-slate-500">
+                    Size <b className="text-slate-700">{l.size}</b>
+                  </p>
+                  <p className="truncate font-mono text-[10px] text-slate-400">{l.variant_sku}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ---------- THE BILL ---------- */}
       <article id="bill-doc" className="mx-auto w-full max-w-[820px] bg-white text-[13px] text-black shadow-sm sm:text-[15px] print:max-w-none print:shadow-none">
