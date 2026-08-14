@@ -128,6 +128,9 @@ export default function SellPage() {
   // Offers (poster v2): Buy 2/3/4 = 20/30/40% off applies AUTOMATICALLY —
   // tierDismissed is the staff escape hatch. Mystery envelope is unchanged.
   const [tierDismissed, setTierDismissed] = useState(false);
+  // T-shirt offer: Buy 2 = flat ₹499 off · Buy 3+ = flat ₹999 off. Applies to the
+  // t-shirt part of the bill, stacks with the shirt offer. teeDismissed = escape hatch.
+  const [teeDismissed, setTeeDismissed] = useState(false);
   const [reward, setReward] = useState<number | null>(null); // Mystery amount won
   // free keychain rides along on every purchase — auto-added once per sale
   const keychainAuto = useRef(false);
@@ -236,6 +239,7 @@ export default function SellPage() {
       setDiscount("0");
       setFreebieCounts({ ...NO_FREEBIES });
       setTierDismissed(false);
+      setTeeDismissed(false);
       keychainAuto.current = false;
       capAuto.current = false;
       clearReward();
@@ -458,12 +462,21 @@ export default function SellPage() {
     [cart]
   );
   const teePieces = pieces - shirtPieces;
+  const teeSubtotal = subtotal - shirtSubtotal;
 
   // Buy 2 = 20% · Buy 3 = 30% · Buy 4+ = 40% — on the SHIRT part of the bill.
   const tierPct = shirtPieces >= 4 ? 40 : shirtPieces === 3 ? 30 : shirtPieces === 2 ? 20 : 0;
   const tierAmt = Math.round((shirtSubtotal * tierPct) / 100);
   const offTier = !tierDismissed && tierPct > 0 ? tierAmt : 0;
-  const offerDiscount = offTier + (reward || 0);
+
+  // T-shirts: Buy 2 = flat ₹499 off · Buy 3+ = flat ₹999 off — on the TEE part of
+  // the bill, stacks with the shirt offer. Never discount more than the t-shirts
+  // are worth (a cheap 3-tee bill caps the ₹999 at the tee subtotal).
+  const teeFlat = teePieces >= 3 ? 999 : teePieces === 2 ? 499 : 0;
+  const teeAmt = Math.min(teeFlat, teeSubtotal);
+  const offTee = !teeDismissed && teeFlat > 0 ? teeAmt : 0;
+
+  const offerDiscount = offTier + offTee + (reward || 0);
 
   // Final bill AFTER offers + manual discount. The free cap keys off this, not
   // the pre-discount subtotal, so a bill that drops under ₹2,499 once the Buy-2
@@ -552,6 +565,8 @@ export default function SellPage() {
     const offerParts: string[] = [];
     if (offTier > 0)
       offerParts.push(`Offer 1 (Buy ${Math.min(shirtPieces, 4)}${shirtPieces > 4 ? "+" : ""} shirts: ${tierPct}% off: -₹${offTier})`);
+    if (offTee > 0)
+      offerParts.push(`Offer T (Buy ${teePieces} t-shirts: flat -₹${offTee})`);
     if (reward) offerParts.push(`Offer 2 (Mystery: -₹${reward})`);
     const body = {
       items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price), src: l.src || "rack" })),
@@ -603,6 +618,7 @@ export default function SellPage() {
       });
       feedback(true);
       setTierDismissed(false);
+      setTeeDismissed(false);
       clearReward(); // the envelope was for THIS bill
       // a name entered via "Others…" is now a real billed name — list it here
       // too, so it shows without waiting for a reload/refetch
@@ -912,40 +928,73 @@ export default function SellPage() {
           ) : null}
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Offers</p>
-          {offTier > 0 ? (
-            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-bold text-emerald-800">
-                  🎉 BUY {Math.min(shirtPieces, 4)}{shirtPieces > 4 ? "+" : ""} = {tierPct}% OFF
+          {/* Shirt offer — Buy 2/3/4 = 20/30/40% off, shirts only */}
+          {shirtPieces > 0 &&
+            (offTier > 0 ? (
+              <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-emerald-800">
+                    🎉 BUY {Math.min(shirtPieces, 4)}{shirtPieces > 4 ? "+" : ""} SHIRTS = {tierPct}% OFF
+                  </p>
+                  <span className="text-base font-bold tabular-nums text-emerald-700">− {money(offTier)}</span>
+                </div>
+                <p className="mt-0.5 text-xs text-emerald-700">
+                  Applied to shirts · free keychain added
+                  {shirtPieces === 2 && " · 1 more shirt = 30% off"}
+                  {shirtPieces === 3 && " · 1 more shirt = 40% off"}
                 </p>
-                <span className="text-base font-bold tabular-nums text-emerald-700">− {money(offTier)}</span>
+                <button onClick={() => setTierDismissed(true)} className="mt-1 text-xs text-emerald-600 underline">
+                  Remove this offer
+                </button>
               </div>
-              <p className="mt-0.5 text-xs text-emerald-700">
-                Applied to shirts only · free keychain added
-                {shirtPieces === 2 && " · 1 more shirt = 30% off"}
-                {shirtPieces === 3 && " · 1 more shirt = 40% off"}
-                {teePieces > 0 && ` · ${teePieces} t-shirt${teePieces === 1 ? "" : "s"} at listed price`}
-              </p>
-              <button onClick={() => setTierDismissed(true)} className="mt-1 text-xs text-emerald-600 underline">
-                Remove this offer
+            ) : tierPct > 0 ? (
+              <button
+                onClick={() => setTierDismissed(false)}
+                className="rounded-xl border border-dashed border-emerald-300 bg-white px-3 py-2 text-left text-sm text-slate-600"
+              >
+                Shirt offer removed — tap to re-apply Buy {Math.min(shirtPieces, 4)} = {tierPct}% off (−{money(tierAmt)})
               </button>
-            </div>
-          ) : tierPct > 0 ? (
-            <button
-              onClick={() => setTierDismissed(false)}
-              className="rounded-xl border border-dashed border-emerald-300 bg-white px-3 py-2 text-left text-sm text-slate-600"
-            >
-              Offer removed — tap to re-apply Buy {Math.min(shirtPieces, 4)} = {tierPct}% off (−{money(tierAmt)})
-            </button>
-          ) : teePieces > 0 && shirtPieces === 0 ? (
-            // all-t-shirt cart: say it plainly so staff can explain instantly
-            <p className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">
-              👕 Offer applies to <b>shirts only</b> — t-shirts are sold at listed price.
-            </p>
-          ) : (
+            ) : (
+              <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                🏷 Shirts: Buy 2 = <b>20%</b> · Buy 3 = <b>30%</b> · Buy 4 = <b>40%</b> off — add 1 more shirt to unlock
+              </p>
+            ))}
+
+          {/* T-shirt offer — Buy 2 = flat ₹499 off, Buy 3+ = flat ₹999 off */}
+          {teePieces > 0 &&
+            (offTee > 0 ? (
+              <div className="rounded-xl border border-violet-300 bg-violet-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-violet-800">
+                    👕 BUY {teePieces >= 3 ? "3+" : "2"} T-SHIRTS = ₹{teePieces >= 3 ? "999" : "499"} OFF
+                  </p>
+                  <span className="text-base font-bold tabular-nums text-violet-700">− {money(offTee)}</span>
+                </div>
+                <p className="mt-0.5 text-xs text-violet-700">
+                  Applied to t-shirts
+                  {teePieces === 2 && " · 1 more t-shirt = ₹999 off"}
+                </p>
+                <button onClick={() => setTeeDismissed(true)} className="mt-1 text-xs text-violet-600 underline">
+                  Remove this offer
+                </button>
+              </div>
+            ) : teeFlat > 0 ? (
+              <button
+                onClick={() => setTeeDismissed(false)}
+                className="rounded-xl border border-dashed border-violet-300 bg-white px-3 py-2 text-left text-sm text-slate-600"
+              >
+                T-shirt offer removed — tap to re-apply (−{money(teeAmt)})
+              </button>
+            ) : (
+              <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                👕 T-shirts: Buy 2 = <b>₹499</b> off · Buy 3 = <b>₹999</b> off — add 1 more t-shirt to unlock
+              </p>
+            ))}
+
+          {/* nothing scanned yet — show both offers so staff can quote them */}
+          {shirtPieces === 0 && teePieces === 0 && (
             <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              🏷 Buy 2 = <b>20%</b> · Buy 3 = <b>30%</b> · Buy 4 = <b>40%</b> off — <b>shirts only</b>, applies automatically
-              {teePieces > 0 && " · t-shirts at listed price"}
+              🏷 Shirts: Buy 2/3/4 = <b>20/30/40%</b> off · 👕 T-shirts: Buy 2 = <b>₹499</b>, Buy 3 = <b>₹999</b> off
             </p>
           )}
           <button
@@ -1033,6 +1082,14 @@ export default function SellPage() {
               <span className="font-medium text-emerald-700">− {money(offTier)}</span>
             </div>
           )}
+          {offTee > 0 && (
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-slate-500">👕 Buy {teePieces >= 3 ? "3+" : "2"} t-shirts · flat off
+                <button onClick={() => setTeeDismissed(true)} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
+              </span>
+              <span className="font-medium text-violet-700">− {money(offTee)}</span>
+            </div>
+          )}
           {!!reward && (
             <div className="mb-2 flex items-center justify-between text-sm">
               <span className="text-slate-500">🎁 Mystery envelope
@@ -1091,6 +1148,7 @@ export default function SellPage() {
               <Row label="Subtotal" value={money(subtotal)} />
               {discountNum > 0 && <Row label="Discount" value={`− ${money(discountNum)}`} />}
               {offTier > 0 && <Row label={`Buy ${Math.min(shirtPieces, 4)}${shirtPieces > 4 ? "+" : ""} shirts · ${tierPct}% off`} value={`− ${money(offTier)}`} />}
+              {offTee > 0 && <Row label={`Buy ${teePieces >= 3 ? "3+" : "2"} t-shirts · flat off`} value={`− ${money(offTee)}`} />}
               {!!reward && <Row label="Mystery envelope" value={`− ${money(reward)}`} />}
               <div className="flex justify-between pt-1 text-lg font-bold">
                 <span>Total</span>
