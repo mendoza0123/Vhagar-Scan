@@ -449,10 +449,10 @@ export default function SellPage() {
   );
   const pieces = useMemo(() => cart.reduce((n, l) => n + l.qty, 0), [cart]);
 
-  // ---- SHIRT-ONLY offer basis ----
-  // The Buy-2/3/4 tier and the mystery envelope are shirt offers. T-shirts are
-  // sold at their listed price: they neither push the tier up nor get discounted.
-  // (The free cap and key chain still key off the WHOLE bill — see below.)
+  // ---- offer bases ----
+  // The Buy-2/3/4 % tier is SHIRT-ONLY (keys off shirtPieces / shirtSubtotal).
+  // The t-shirt flat offer keys off the tee part. The mystery envelope, free cap
+  // and free keychain all key off the WHOLE bill (shirts + t-shirts).
   const shirtPieces = useMemo(
     () => cart.reduce((n, l) => (isTshirt(l.category) ? n : n + l.qty), 0),
     [cart]
@@ -514,13 +514,13 @@ export default function SellPage() {
       setFreebieCounts((c) => ({ ...c, Cap: Math.max(0, (c.Cap || 0) - 1) }));
     }
   }, [total]);
-  // Mystery envelope is a SHIRT offer — t-shirt value doesn't count toward ₹4,999.
+  // Mystery envelope unlocks on the WHOLE bill (shirts + t-shirts) of ₹4,999+.
   useEffect(() => {
-    if (reward && cart.length > 0 && shirtSubtotal < OFFER4_MIN) {
+    if (reward && cart.length > 0 && subtotal < OFFER4_MIN) {
       clearReward();
-      showToast("Shirts dropped under ₹4,999 — mystery reward removed", "warn");
+      showToast("Bill dropped under ₹4,999 — mystery reward removed", "warn");
     }
-  }, [reward, shirtSubtotal, cart.length, clearReward, showToast]);
+  }, [reward, subtotal, cart.length, clearReward, showToast]);
 
   const blockingLines = cart.filter((l) => lineBlock(l) !== null);
   // Name + a REAL mobile are mandatory — 10 digits starting 6-9 (+91/0 ok),
@@ -999,15 +999,14 @@ export default function SellPage() {
           )}
           <button
             onClick={() => router.push("/reward")}
-            disabled={shirtSubtotal < OFFER4_MIN && !reward}
+            disabled={subtotal < OFFER4_MIN && !reward}
             className={`rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-40 ${reward ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
           >
             {reward ? `🎁 Mystery envelope · ₹${reward} won ✓` : "🎁 Mystery envelope"}
           </button>
-          {shirtSubtotal < OFFER4_MIN && !reward && (
+          {subtotal < OFFER4_MIN && !reward && (
             <p className="text-xs text-slate-400">
-              Mystery envelope unlocks at ₹4,999+ of shirts (now ₹{shirtSubtotal.toLocaleString("en-IN")})
-              {teePieces > 0 && " · t-shirts don’t count"}
+              Mystery envelope unlocks at ₹4,999+ (now ₹{subtotal.toLocaleString("en-IN")})
             </p>
           )}
 
