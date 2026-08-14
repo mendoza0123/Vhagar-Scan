@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { money } from "@/lib/format";
+import { isTshirt } from "@/lib/product-type";
 
 // Offer 4 — the Mystery Envelope. On bills of ₹4,999+ the customer picks one of
 // five floating envelopes; each hides ₹100–₹500 off, shuffled every time. One
@@ -67,8 +68,15 @@ export default function RewardPage() {
         const j = JSON.parse(r);
         if (j?.amount) { setWon(Number(j.amount)); setPhase("already"); return; }
       }
-      const cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]") as { price: string; qty: number }[];
-      const sub = cart.reduce((s, l) => s + (Number(l.price) || 0) * (l.qty || 0), 0);
+      // Shirt-only, exactly like the Sell screen's gate — t-shirt value does not
+      // count toward the ₹4,999 unlock. (A line saved before `category` existed
+      // reads as a shirt, so a sale already in progress is unaffected.)
+      const cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]") as
+        { price: string; qty: number; category?: string | null }[];
+      const sub = cart.reduce(
+        (s, l) => (isTshirt(l.category) ? s : s + (Number(l.price) || 0) * (l.qty || 0)),
+        0
+      );
       setSubtotal(sub);
       setPhase(sub >= MIN_SUBTOTAL ? "ready" : "locked");
     } catch {
@@ -103,7 +111,8 @@ export default function RewardPage() {
           <h1 className="mt-4 text-2xl font-bold">Mystery Envelope</h1>
           <p className="mt-2 max-w-xs text-sm text-white/70">
             Unlocks on bills of <b className="text-white">{money(MIN_SUBTOTAL)}+</b>.
-            This bill is at {money(subtotal)} — add {money(Math.max(0, MIN_SUBTOTAL - subtotal))} more.
+            Shirts on this bill: {money(subtotal)} — add {money(Math.max(0, MIN_SUBTOTAL - subtotal))} more.
+            <br />T-shirts don&apos;t count toward this offer.
           </p>
           <button onClick={() => router.push("/sell")} className="btn btn-ghost mt-6 bg-white text-brand">
             ← Back to the sale

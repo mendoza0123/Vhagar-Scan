@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { money } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone";
+import { isTshirt } from "@/lib/product-type";
 
 // Scanner is client-only (camera). ssr:false keeps html5-qrcode off the server.
 const Scanner = dynamic(() => import("./Scanner"), { ssr: false });
@@ -33,6 +34,10 @@ type Line = {
   qty: number;
   needs_price: boolean;
   qty_on_hand: number;
+  // Drives offer eligibility: the Buy-2/3/4 tier and the mystery envelope are
+  // SHIRT-ONLY. A cart saved before this field existed has it undefined, which
+  // reads as a shirt — so a sale already in progress keeps its current pricing.
+  category?: string | null;
   // where the piece physically came from — drives WHICH index the sale
   // deducts (rack vs carton vs neither). Never touches qty_on_hand.
   src?: Source;
@@ -283,7 +288,8 @@ export default function SellPage() {
         const i = prev.findIndex((l) => l.sku === v.variant_sku);
         if (i >= 0) {
           const next = [...prev];
-          next[i] = { ...next[i], qty: next[i].qty + 1, qty_on_hand: v.qty_on_hand };
+          // also backfill category on a line saved before the field existed
+          next[i] = { ...next[i], qty: next[i].qty + 1, qty_on_hand: v.qty_on_hand, category: v.category };
           return next;
         }
         return [
@@ -296,6 +302,7 @@ export default function SellPage() {
             listedPrice: v.price,
             price: v.needs_price ? "" : String(v.price),
             qty: 1,
+            category: v.category,
             needs_price: v.needs_price,
             qty_on_hand: v.qty_on_hand,
             src: "rack", // the default grab spot; staff switch when they dig into a box
@@ -438,9 +445,23 @@ export default function SellPage() {
   );
   const pieces = useMemo(() => cart.reduce((n, l) => n + l.qty, 0), [cart]);
 
-  // Buy 2 = 20% · Buy 3 = 30% · Buy 4+ = 40% — off the whole bill, automatic.
-  const tierPct = pieces >= 4 ? 40 : pieces === 3 ? 30 : pieces === 2 ? 20 : 0;
-  const tierAmt = Math.round((subtotal * tierPct) / 100);
+  // ---- SHIRT-ONLY offer basis ----
+  // The Buy-2/3/4 tier and the mystery envelope are shirt offers. T-shirts are
+  // sold at their listed price: they neither push the tier up nor get discounted.
+  // (The free cap and key chain still key off the WHOLE bill — see below.)
+  const shirtPieces = useMemo(
+    () => cart.reduce((n, l) => (isTshirt(l.category) ? n : n + l.qty), 0),
+    [cart]
+  );
+  const shirtSubtotal = useMemo(
+    () => cart.reduce((s, l) => (isTshirt(l.category) ? s : s + (Number(l.price) || 0) * l.qty), 0),
+    [cart]
+  );
+  const teePieces = pieces - shirtPieces;
+
+  // Buy 2 = 20% · Buy 3 = 30% · Buy 4+ = 40% — on the SHIRT part of the bill.
+  const tierPct = shirtPieces >= 4 ? 40 : shirtPieces === 3 ? 30 : shirtPieces === 2 ? 20 : 0;
+  const tierAmt = Math.round((shirtSubtotal * tierPct) / 100);
   const offTier = !tierDismissed && tierPct > 0 ? tierAmt : 0;
   const offerDiscount = offTier + (reward || 0);
 
@@ -480,12 +501,13 @@ export default function SellPage() {
       setFreebieCounts((c) => ({ ...c, Cap: Math.max(0, (c.Cap || 0) - 1) }));
     }
   }, [total]);
+  // Mystery envelope is a SHIRT offer — t-shirt value doesn't count toward ₹4,999.
   useEffect(() => {
-    if (reward && cart.length > 0 && subtotal < OFFER4_MIN) {
+    if (reward && cart.length > 0 && shirtSubtotal < OFFER4_MIN) {
       clearReward();
-      showToast("Bill dropped under ₹4,999 — mystery reward removed", "warn");
+      showToast("Shirts dropped under ₹4,999 — mystery reward removed", "warn");
     }
-  }, [reward, subtotal, cart.length, clearReward, showToast]);
+  }, [reward, shirtSubtotal, cart.length, clearReward, showToast]);
 
   const blockingLines = cart.filter((l) => lineBlock(l) !== null);
   // Name + a REAL mobile are mandatory — 10 digits starting 6-9 (+91/0 ok),
@@ -529,7 +551,7 @@ export default function SellPage() {
     const snapshot = cart.map((l) => ({ ...l }));
     const offerParts: string[] = [];
     if (offTier > 0)
-      offerParts.push(`Offer 1 (Buy ${Math.min(pieces, 4)}${pieces > 4 ? "+" : ""}: ${tierPct}% off: -₹${offTier})`);
+      offerParts.push(`Offer 1 (Buy ${Math.min(shirtPieces, 4)}${shirtPieces > 4 ? "+" : ""} shirts: ${tierPct}% off: -₹${offTier})`);
     if (reward) offerParts.push(`Offer 2 (Mystery: -₹${reward})`);
     const body = {
       items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price), src: l.src || "rack" })),
@@ -894,14 +916,15 @@ export default function SellPage() {
             <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-bold text-emerald-800">
-                  🎉 BUY {Math.min(pieces, 4)}{pieces > 4 ? "+" : ""} = {tierPct}% OFF
+                  🎉 BUY {Math.min(shirtPieces, 4)}{shirtPieces > 4 ? "+" : ""} = {tierPct}% OFF
                 </p>
                 <span className="text-base font-bold tabular-nums text-emerald-700">− {money(offTier)}</span>
               </div>
               <p className="mt-0.5 text-xs text-emerald-700">
-                Applied automatically · free keychain added
-                {pieces === 2 && " · 1 more piece = 30% off"}
-                {pieces === 3 && " · 1 more piece = 40% off"}
+                Applied to shirts only · free keychain added
+                {shirtPieces === 2 && " · 1 more shirt = 30% off"}
+                {shirtPieces === 3 && " · 1 more shirt = 40% off"}
+                {teePieces > 0 && ` · ${teePieces} t-shirt${teePieces === 1 ? "" : "s"} at listed price`}
               </p>
               <button onClick={() => setTierDismissed(true)} className="mt-1 text-xs text-emerald-600 underline">
                 Remove this offer
@@ -912,23 +935,30 @@ export default function SellPage() {
               onClick={() => setTierDismissed(false)}
               className="rounded-xl border border-dashed border-emerald-300 bg-white px-3 py-2 text-left text-sm text-slate-600"
             >
-              Offer removed — tap to re-apply Buy {Math.min(pieces, 4)} = {tierPct}% off (−{money(tierAmt)})
+              Offer removed — tap to re-apply Buy {Math.min(shirtPieces, 4)} = {tierPct}% off (−{money(tierAmt)})
             </button>
+          ) : teePieces > 0 && shirtPieces === 0 ? (
+            // all-t-shirt cart: say it plainly so staff can explain instantly
+            <p className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">
+              👕 Offer applies to <b>shirts only</b> — t-shirts are sold at listed price.
+            </p>
           ) : (
             <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              🏷 Buy 2 = <b>20%</b> · Buy 3 = <b>30%</b> · Buy 4 = <b>40%</b> off — applies automatically
+              🏷 Buy 2 = <b>20%</b> · Buy 3 = <b>30%</b> · Buy 4 = <b>40%</b> off — <b>shirts only</b>, applies automatically
+              {teePieces > 0 && " · t-shirts at listed price"}
             </p>
           )}
           <button
             onClick={() => router.push("/reward")}
-            disabled={subtotal < OFFER4_MIN && !reward}
+            disabled={shirtSubtotal < OFFER4_MIN && !reward}
             className={`rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-40 ${reward ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
           >
             {reward ? `🎁 Mystery envelope · ₹${reward} won ✓` : "🎁 Mystery envelope"}
           </button>
-          {subtotal < OFFER4_MIN && !reward && (
+          {shirtSubtotal < OFFER4_MIN && !reward && (
             <p className="text-xs text-slate-400">
-              Mystery envelope unlocks at ₹4,999+ (now ₹{subtotal.toLocaleString("en-IN")})
+              Mystery envelope unlocks at ₹4,999+ of shirts (now ₹{shirtSubtotal.toLocaleString("en-IN")})
+              {teePieces > 0 && " · t-shirts don’t count"}
             </p>
           )}
 
@@ -997,7 +1027,7 @@ export default function SellPage() {
           </div>
           {offTier > 0 && (
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-slate-500">🎉 Buy {Math.min(pieces, 4)}{pieces > 4 ? "+" : ""} · {tierPct}% off
+              <span className="text-slate-500">🎉 Buy {Math.min(shirtPieces, 4)}{shirtPieces > 4 ? "+" : ""} shirts · {tierPct}% off
                 <button onClick={() => setTierDismissed(true)} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
               </span>
               <span className="font-medium text-emerald-700">− {money(offTier)}</span>
@@ -1060,7 +1090,7 @@ export default function SellPage() {
             <div className="mt-3 space-y-1 text-sm">
               <Row label="Subtotal" value={money(subtotal)} />
               {discountNum > 0 && <Row label="Discount" value={`− ${money(discountNum)}`} />}
-              {offTier > 0 && <Row label={`Buy ${Math.min(pieces, 4)}${pieces > 4 ? "+" : ""} · ${tierPct}% off`} value={`− ${money(offTier)}`} />}
+              {offTier > 0 && <Row label={`Buy ${Math.min(shirtPieces, 4)}${shirtPieces > 4 ? "+" : ""} shirts · ${tierPct}% off`} value={`− ${money(offTier)}`} />}
               {!!reward && <Row label="Mystery envelope" value={`− ${money(reward)}`} />}
               <div className="flex justify-between pt-1 text-lg font-bold">
                 <span>Total</span>
