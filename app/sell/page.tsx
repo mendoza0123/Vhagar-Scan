@@ -60,6 +60,9 @@ const SOLDBY_KEY = "vhagar.soldBy.v1";
 // Offer 4 (mystery envelope) result, written by /reward. Survives refresh; a
 // checkout or removing the offer consumes it. Same literal in app/reward/page.tsx.
 const REWARD_KEY = "vhagar.reward.v1";
+// Bill total BEFORE the mystery reward — the ₹4,999 unlock basis, shared with
+// /reward so both gate on the same number. Same literal in app/reward/page.tsx.
+const MYSTERY_KEY = "vhagar.mysbasis.v1";
 const OFFER4_MIN = 4999;
 const CAP_MIN = 2499; // free cap on bills of ₹2,499+ (poster)
 
@@ -483,6 +486,9 @@ export default function SellPage() {
   // discount lands doesn't get the cap.
   const discountNum = Math.min(Math.max(0, Number(discount) || 0), Math.max(0, subtotal - offerDiscount));
   const total = Math.max(0, subtotal - discountNum - offerDiscount);
+  // The mystery envelope unlocks on the bill total EXCLUDING its own reward, so
+  // winning a reward can't drop the bill under ₹4,999 and cancel itself.
+  const billBeforeReward = total + (reward || 0);
 
   const clearReward = useCallback(() => {
     setReward(null);
@@ -514,13 +520,19 @@ export default function SellPage() {
       setFreebieCounts((c) => ({ ...c, Cap: Math.max(0, (c.Cap || 0) - 1) }));
     }
   }, [total]);
-  // Mystery envelope unlocks on the WHOLE bill (shirts + t-shirts) of ₹4,999+.
+  // Mystery envelope unlocks on the bill TOTAL (shirts + t-shirts, after offers)
+  // of ₹4,999+ — drop under that and the won reward is taken back.
   useEffect(() => {
-    if (reward && cart.length > 0 && subtotal < OFFER4_MIN) {
+    if (reward && cart.length > 0 && billBeforeReward < OFFER4_MIN) {
       clearReward();
       showToast("Bill dropped under ₹4,999 — mystery reward removed", "warn");
     }
-  }, [reward, subtotal, cart.length, clearReward, showToast]);
+  }, [reward, billBeforeReward, cart.length, clearReward, showToast]);
+  // Share the unlock basis with /reward so it gates on the same number the sell
+  // screen shows, instead of re-deriving the offers from the cart.
+  useEffect(() => {
+    if (hydrated) localStorage.setItem(MYSTERY_KEY, String(billBeforeReward));
+  }, [billBeforeReward, hydrated]);
 
   const blockingLines = cart.filter((l) => lineBlock(l) !== null);
   // Name + a REAL mobile are mandatory — 10 digits starting 6-9 (+91/0 ok),
@@ -563,11 +575,13 @@ export default function SellPage() {
     setStatus("submitting");
     const snapshot = cart.map((l) => ({ ...l }));
     const offerParts: string[] = [];
+    // Customer-facing, itemised on the bill. Each part ends ": ₹<amount>" so the
+    // bill can split it back into separate discount lines (see app/sale/[id]).
     if (offTier > 0)
-      offerParts.push(`Offer 1 (Buy ${Math.min(shirtPieces, 4)}${shirtPieces > 4 ? "+" : ""} shirts: ${tierPct}% off: -₹${offTier})`);
+      offerParts.push(`Buy ${Math.min(shirtPieces, 4)}${shirtPieces > 4 ? "+" : ""} shirts · ${tierPct}% off: ₹${offTier}`);
     if (offTee > 0)
-      offerParts.push(`Offer T (Buy ${teePieces} t-shirts: flat -₹${offTee})`);
-    if (reward) offerParts.push(`Offer 2 (Mystery: -₹${reward})`);
+      offerParts.push(`Buy ${teePieces} t-shirts · flat off: ₹${offTee}`);
+    if (reward) offerParts.push(`Mystery envelope: ₹${reward}`);
     const body = {
       items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price), src: l.src || "rack" })),
       discount: discountNum + offerDiscount, // one figure on the bill; the split is in `offer`
@@ -999,14 +1013,14 @@ export default function SellPage() {
           )}
           <button
             onClick={() => router.push("/reward")}
-            disabled={subtotal < OFFER4_MIN && !reward}
+            disabled={billBeforeReward < OFFER4_MIN && !reward}
             className={`rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-40 ${reward ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
           >
             {reward ? `🎁 Mystery envelope · ₹${reward} won ✓` : "🎁 Mystery envelope"}
           </button>
-          {subtotal < OFFER4_MIN && !reward && (
+          {billBeforeReward < OFFER4_MIN && !reward && (
             <p className="text-xs text-slate-400">
-              Mystery envelope unlocks at ₹4,999+ (now ₹{subtotal.toLocaleString("en-IN")})
+              Mystery envelope unlocks at ₹4,999+ (now ₹{billBeforeReward.toLocaleString("en-IN")})
             </p>
           )}
 

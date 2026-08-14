@@ -31,6 +31,26 @@ function parseFreebies(freebie: string | null) {
     });
 }
 
+// The sell screen stores each applied offer as "Label …: ₹<amount>", joined with
+// " + " (e.g. "Buy 2 shirts · 20% off: ₹499 + Buy 2 t-shirts · flat off: ₹499").
+// Split it back so the customer bill shows the shirt and t-shirt offers on their
+// own lines. Bills written before this format end in ")" with no trailing
+// "₹<amount>", so they yield nothing here and fall back to one Discount line.
+function parseOffers(offer: string | null): { label: string; amount: number }[] {
+  return (offer || "")
+    .split(" + ")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const m = part.match(/₹\s*([\d,]+)\s*$/);
+      if (!m) return null;
+      const amount = Number(m[1].replace(/,/g, ""));
+      const label = part.slice(0, m.index).replace(/[·:\s-]+$/, "").trim();
+      return amount > 0 ? { label: label || "Offer", amount } : null;
+    })
+    .filter((o): o is { label: string; amount: number } => o !== null);
+}
+
 export const dynamic = "force-dynamic";
 
 type SaleItem = {
@@ -48,7 +68,7 @@ async function getSale(id: number) {
   const rows = await sql`
     SELECT id, bill_no, subtotal::float8 AS subtotal, discount::float8 AS discount,
            total::float8 AS total, payment_method, customer_name, customer_phone,
-           customer_email, delivery_method, freebie, note, sold_by, status, created_at
+           customer_email, delivery_method, freebie, offer, note, sold_by, status, created_at
     FROM sales WHERE id = ${id}`;
   if (rows.length === 0) return null;
   const sale = rows[0] as any;
@@ -86,7 +106,13 @@ export default async function BillPage({ params }: { params: { id: string } }) {
 
   const billNo = sale.bill_no ?? deriveBillNo(sale.id);
   const freebies = parseFreebies(sale.freebie);
-  const padRows = Math.max(0, MIN_ROWS - sale.items.length - freebies.length);
+  // Itemise the discount: each offer on its own line, and whatever's left of the
+  // stored total discount after the offers is a plain manual discount.
+  const offerLines = parseOffers(sale.offer);
+  const offerSum = offerLines.reduce((s, o) => s + o.amount, 0);
+  const manualDiscount = Math.max(0, (Number(sale.discount) || 0) - offerSum);
+  const discountRows = offerLines.length + (manualDiscount > 0.5 ? 1 : 0);
+  const padRows = Math.max(0, MIN_ROWS - sale.items.length - freebies.length - discountRows);
 
   // Short, professional note pre-filled into WhatsApp / Gmail. Staff attach the
   // downloaded PDF by hand — no link (wa.me or Gmail) can carry a file.
@@ -232,10 +258,16 @@ export default async function BillPage({ params }: { params: { id: string } }) {
                   <td className="border border-black px-3 py-2.5" />
                 </tr>
               ))}
-              {sale.discount > 0 && (
+              {offerLines.map((o, i) => (
+                <tr key={`offer-${i}`}>
+                  <td className="border border-black px-3 py-2 text-right" colSpan={3}>{o.label}</td>
+                  <td className="border border-black px-3 py-2 text-right tabular-nums">− {money(o.amount)}</td>
+                </tr>
+              ))}
+              {manualDiscount > 0.5 && (
                 <tr>
                   <td className="border border-black px-3 py-2 text-right" colSpan={3}>Discount</td>
-                  <td className="border border-black px-3 py-2 text-right tabular-nums">− {money(sale.discount)}</td>
+                  <td className="border border-black px-3 py-2 text-right tabular-nums">− {money(manualDiscount)}</td>
                 </tr>
               )}
             </tbody>

@@ -10,6 +10,7 @@ import { money } from "@/lib/format";
 const AMOUNTS = [100, 200, 300, 400, 500];
 const REWARD_KEY = "vhagar.reward.v1"; // same literal in sell/page.tsx (a page can't export consts)
 const CART_KEY = "vhagar.cart.v2";
+const MYSTERY_KEY = "vhagar.mysbasis.v1"; // sell screen's bill total before this reward
 const MIN_SUBTOTAL = 4999;
 
 const CSS = `
@@ -67,13 +68,15 @@ export default function RewardPage() {
         const j = JSON.parse(r);
         if (j?.amount) { setWon(Number(j.amount)); setPhase("already"); return; }
       }
-      // Whole-bill unlock — shirts AND t-shirts count toward the ₹4,999.
+      // Unlock basis = the sell screen's bill total (after offers, before this
+      // reward) — shirts AND t-shirts count. Fall back to a raw cart sum if the
+      // basis isn't in storage yet (e.g. /reward opened cold).
+      const basisRaw = localStorage.getItem(MYSTERY_KEY);
       const cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]") as
-        { price: string; qty: number; category?: string | null }[];
-      const sub = cart.reduce(
-        (s, l) => s + (Number(l.price) || 0) * (l.qty || 0),
-        0
-      );
+        { price: string; qty: number }[];
+      const sub = basisRaw != null && basisRaw !== ""
+        ? Number(basisRaw) || 0
+        : cart.reduce((s, l) => s + (Number(l.price) || 0) * (l.qty || 0), 0);
       setSubtotal(sub);
       setPhase(sub >= MIN_SUBTOTAL ? "ready" : "locked");
     } catch {
