@@ -87,15 +87,29 @@ export default function BillActions(p: Props) {
     const el = document.getElementById("bill-doc");
     if (!el) throw new Error("bill-doc not found");
     const html2pdf = (await import("html2pdf.js")).default;
-    return await html2pdf()
-      .set({
-        margin: 6,
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, width: 820, windowWidth: 820 },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      })
-      .from(el)
-      .outputPdf("blob");
+    // html2canvas rasterises the LIVE DOM in screen media — @media print never
+    // applies here. Tag the bill so the compact rules in page.tsx kick in for the
+    // length of the capture, otherwise the generous booth sizing is what gets
+    // photographed and a 13-line bill runs onto a second, near-empty page.
+    // Always removed again in `finally`, or the screen would stay shrunken.
+    el.classList.add("pdf-export");
+    document.body.classList.add("pdf-exporting");
+    try {
+      return await html2pdf()
+        .set({
+          margin: 6,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, width: 820, windowWidth: 820 },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          // don't slice a row or the footer blocks across the page boundary
+          pagebreak: { mode: ["css", "legacy"], avoid: ["tr", ".keep"] },
+        })
+        .from(el)
+        .outputPdf("blob");
+    } finally {
+      el.classList.remove("pdf-export");
+      document.body.classList.remove("pdf-exporting");
+    }
   }
   function download(blob: Blob) {
     const a = document.createElement("a");

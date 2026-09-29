@@ -144,53 +144,57 @@ export default async function BillPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="flex min-h-screen flex-col gap-4 bg-slate-100 p-4 print:bg-white print:p-0">
-      {/* Print rules matter: a long bill (13+ lines) spills onto a 2nd page, and
-          without these the break lands MID-ROW and orphans the total + footer.
-          - tr/avoid  : never slice a row in half across the page boundary
-          - thead     : repeat the QTY/DESCRIPTION header on page 2
-          - tfoot     : table-row-group so the TOTAL prints ONCE at the end
-                        (the print default, table-footer-group, repeats it on
-                        every page — a bill must not show TOTAL twice)
-          - .keep     : address / T&C / sign-off blocks stay whole            */}
+      {/* TWO different outputs need the same compact sizing, and they do NOT
+          share a mechanism:
+            1. Ctrl+P / Save-as-PDF  -> the browser, via @media print
+            2. the "Download PDF" button -> html2pdf.js, which is html2canvas +
+               jsPDF. html2canvas RASTERISES THE LIVE DOM IN SCREEN MEDIA, so it
+               ignores @media print entirely. BillActions therefore tags the bill
+               with .pdf-export (and the body with .pdf-exporting) for the length
+               of the capture, and those rules live OUTSIDE the media query.
+          `compact()` emits the identical rule set for both, so the two outputs
+          can never drift apart. Screen/booth styling is untouched either way. */}
       <style
         dangerouslySetInnerHTML={{
-          __html: [
-            "@media print{",
-            "@page{size:A4;margin:12mm 10mm}",
-            "html,body{background:#fff;margin:0;padding:0}",
-            // ---- page-break safety (a long bill still spills to page 2) ----
-            "#bill-doc table{page-break-inside:auto;break-inside:auto}",
-            "#bill-doc tr{page-break-inside:avoid;break-inside:avoid}",
-            "#bill-doc thead{display:table-header-group}",
-            "#bill-doc tfoot{display:table-row-group}",
-            "#bill-doc .keep{page-break-inside:avoid;break-inside:avoid}",
-            "#bill-doc .nowrap{white-space:nowrap}",
-            // ---- COMPACT: screen sizing is generous for tapping; on paper it
-            //      wasted a whole page. These get a ~15-line bill onto ONE A4. ----
-            // The app shell (app/layout.tsx) wraps the whole POS in max-w-md —
-            // right for a phone at the booth, but it strangled the bill on A4:
-            // the table wrapped inside a 448px column and spilled over 3 pages.
-            // Printing must use the full sheet.
-            "body .max-w-md{max-width:none!important;width:100%!important}",
-            "main{min-height:0!important;padding:0!important;gap:0!important;background:#fff!important}",
-            "#bill-doc{font-size:10px!important;line-height:1.25!important;max-width:none!important;width:100%!important}",
-            "#bill-doc>div{padding:5px!important}",
-            "#bill-doc .bill-logo{padding-top:5px!important;padding-bottom:5px!important}",
-            "#bill-doc .bill-logo img{height:38px!important}",
-            "#bill-doc .bill-cell{padding-top:3px!important;padding-bottom:3px!important;",
-            "padding-left:7px!important;padding-right:7px!important;font-size:10px!important}",
-            "#bill-doc th,#bill-doc td{padding-top:2.5px!important;padding-bottom:2.5px!important;",
-            "padding-left:7px!important;padding-right:7px!important;font-size:10px!important}",
-            "#bill-doc td img{height:15px!important;width:15px!important}",
-            "#bill-doc td span,#bill-doc th{font-size:10px!important}",
-            // totals row + sign-off stay a touch larger so they read first
-            "#bill-doc tfoot td{font-size:11px!important;padding-top:5px!important;padding-bottom:5px!important}",
-            "#bill-doc .keep{padding-top:6px!important;padding-bottom:6px!important;margin-top:6px!important}",
-            "#bill-doc .keep p,#bill-doc .keep span,#bill-doc .keep li{font-size:9px!important;line-height:1.35!important}",
-            "#bill-doc .keep svg{width:11px;height:11px}",
-            "#bill-doc .keep span.flex{height:16px!important;width:16px!important}",
-            "}",
-          ].join(""),
+          __html: (() => {
+            const compact = (b: string) => [
+              // The app shell (app/layout.tsx) wraps the POS in max-w-md — right
+              // for a phone at the booth, but it strangles the bill on A4.
+              `${b === "#bill-doc" ? "body" : "body.pdf-exporting"} .max-w-md{max-width:none!important;width:100%!important}`,
+              `${b === "#bill-doc" ? "main" : "body.pdf-exporting main"}{min-height:0!important;padding:0!important;gap:0!important;background:#fff!important}`,
+              `${b}{font-size:10px!important;line-height:1.25!important;max-width:none!important;width:100%!important}`,
+              `${b}>div{padding:5px!important}`,
+              `${b} .bill-logo{padding-top:5px!important;padding-bottom:5px!important}`,
+              `${b} .bill-logo img{height:38px!important}`,
+              `${b} .bill-cell{padding:3px 7px!important;font-size:10px!important}`,
+              `${b} th,${b} td{padding:2.5px 7px!important;font-size:10px!important}`,
+              `${b} td img{height:15px!important;width:15px!important}`,
+              `${b} td span,${b} th{font-size:10px!important}`,
+              // totals + sign-off stay a touch larger so they read first
+              `${b} tfoot td{font-size:11px!important;padding:5px 7px!important}`,
+              `${b} .keep{padding:6px!important;margin-top:6px!important}`,
+              `${b} .keep p,${b} .keep span,${b} .keep li{font-size:9px!important;line-height:1.35!important}`,
+              `${b} .keep svg{width:11px;height:11px}`,
+              `${b} .keep span.flex{height:16px!important;width:16px!important}`,
+            ].join("");
+
+            return [
+              // 1) browser print
+              "@media print{",
+              "@page{size:A4;margin:12mm 10mm}",
+              "html,body{background:#fff;margin:0;padding:0}",
+              "#bill-doc table{page-break-inside:auto;break-inside:auto}",
+              "#bill-doc tr{page-break-inside:avoid;break-inside:avoid}",
+              "#bill-doc thead{display:table-header-group}",
+              "#bill-doc tfoot{display:table-row-group}",
+              "#bill-doc .keep{page-break-inside:avoid;break-inside:avoid}",
+              "#bill-doc .nowrap{white-space:nowrap}",
+              compact("#bill-doc"),
+              "}",
+              // 2) html2pdf capture (screen media — no media query!)
+              compact("#bill-doc.pdf-export"),
+            ].join("");
+          })(),
         }}
       />
       <header className="mx-auto flex w-full max-w-[820px] items-center justify-between print:hidden">
