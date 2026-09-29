@@ -156,14 +156,39 @@ export default async function BillPage({ params }: { params: { id: string } }) {
         dangerouslySetInnerHTML={{
           __html: [
             "@media print{",
-            "@page{size:A4;margin:10mm}",
-            "body{background:#fff}",
+            "@page{size:A4;margin:12mm 10mm}",
+            "html,body{background:#fff;margin:0;padding:0}",
+            // ---- page-break safety (a long bill still spills to page 2) ----
             "#bill-doc table{page-break-inside:auto;break-inside:auto}",
             "#bill-doc tr{page-break-inside:avoid;break-inside:avoid}",
             "#bill-doc thead{display:table-header-group}",
             "#bill-doc tfoot{display:table-row-group}",
             "#bill-doc .keep{page-break-inside:avoid;break-inside:avoid}",
             "#bill-doc .nowrap{white-space:nowrap}",
+            // ---- COMPACT: screen sizing is generous for tapping; on paper it
+            //      wasted a whole page. These get a ~15-line bill onto ONE A4. ----
+            // The app shell (app/layout.tsx) wraps the whole POS in max-w-md —
+            // right for a phone at the booth, but it strangled the bill on A4:
+            // the table wrapped inside a 448px column and spilled over 3 pages.
+            // Printing must use the full sheet.
+            "body .max-w-md{max-width:none!important;width:100%!important}",
+            "main{min-height:0!important;padding:0!important;gap:0!important;background:#fff!important}",
+            "#bill-doc{font-size:10px!important;line-height:1.25!important;max-width:none!important;width:100%!important}",
+            "#bill-doc>div{padding:5px!important}",
+            "#bill-doc .bill-logo{padding-top:5px!important;padding-bottom:5px!important}",
+            "#bill-doc .bill-logo img{height:38px!important}",
+            "#bill-doc .bill-cell{padding-top:3px!important;padding-bottom:3px!important;",
+            "padding-left:7px!important;padding-right:7px!important;font-size:10px!important}",
+            "#bill-doc th,#bill-doc td{padding-top:2.5px!important;padding-bottom:2.5px!important;",
+            "padding-left:7px!important;padding-right:7px!important;font-size:10px!important}",
+            "#bill-doc td img{height:15px!important;width:15px!important}",
+            "#bill-doc td span,#bill-doc th{font-size:10px!important}",
+            // totals row + sign-off stay a touch larger so they read first
+            "#bill-doc tfoot td{font-size:11px!important;padding-top:5px!important;padding-bottom:5px!important}",
+            "#bill-doc .keep{padding-top:6px!important;padding-bottom:6px!important;margin-top:6px!important}",
+            "#bill-doc .keep p,#bill-doc .keep span,#bill-doc .keep li{font-size:9px!important;line-height:1.35!important}",
+            "#bill-doc .keep svg{width:11px;height:11px}",
+            "#bill-doc .keep span.flex{height:16px!important;width:16px!important}",
             "}",
           ].join(""),
         }}
@@ -218,7 +243,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
         <div className="border-[3px] border-black p-2.5">
           <div className="border border-black">
             {/* header / logo */}
-            <div className="flex items-center justify-center border-b border-black py-4 sm:py-6">
+            <div className="bill-logo flex items-center justify-center border-b border-black py-4 sm:py-6">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/lockup-black.png" alt="VHAGAR" className="h-16 w-auto sm:h-24" />
             </div>
@@ -234,11 +259,11 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               <FieldRow label="Email" value={sale.customer_email || ""} />
               <div className="flex border-b border-black">
                 <LabelCell>Payment</LabelCell>
-                <div className="flex-1 px-4 py-3 font-medium uppercase tracking-wide">{paymentLabel(sale.payment_method)}</div>
+                <div className="bill-cell flex-1 px-4 py-3 font-medium uppercase tracking-wide">{paymentLabel(sale.payment_method)}</div>
               </div>
               <div className="flex">
                 <LabelCell>Notes</LabelCell>
-                <div className="flex-1 px-4 py-3 text-sm">{sale.note || " "}</div>
+                <div className="bill-cell flex-1 px-4 py-3 text-sm">{sale.note || " "}</div>
               </div>
             </div>
           </div>
@@ -396,7 +421,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
 /* ---------- field helpers ---------- */
 function LabelCell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="w-24 shrink-0 border-r border-black px-3 py-3 text-xs font-semibold uppercase tracking-wide sm:w-36 sm:px-4">
+    <div className="bill-cell w-24 shrink-0 border-r border-black px-3 py-3 text-xs font-semibold uppercase tracking-wide sm:w-36 sm:px-4">
       {children}
     </div>
   );
@@ -408,7 +433,7 @@ function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex">
       <LabelCell>{label}</LabelCell>
-      <div className="nowrap min-w-0 flex-1 whitespace-nowrap px-4 py-3">{value}</div>
+      <div className="bill-cell nowrap min-w-0 flex-1 whitespace-nowrap px-4 py-3">{value}</div>
     </div>
   );
 }
@@ -416,7 +441,7 @@ function FieldRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex border-b border-black">
       <LabelCell>{label}</LabelCell>
-      <div className="flex-1 px-4 py-3">{value || " "}</div>
+      <div className="bill-cell flex-1 px-4 py-3">{value || " "}</div>
     </div>
   );
 }

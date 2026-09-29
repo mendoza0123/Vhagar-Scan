@@ -53,7 +53,9 @@ export function SiteGate({ children }: { children: React.ReactNode }) {
     <>
       {children}
       {state !== "open" && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-brand p-4">
+        // print:hidden — a `fixed` overlay prints on page 1 in Chrome, so an
+        // un-unlocked tab would emit a PIN screen instead of the bill.
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-brand p-4 print:hidden">
           <div className="w-full max-w-xs rounded-2xl bg-white p-6 text-center shadow-xl">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/lockup-black.png" alt="Vhagar" className="mx-auto h-16 w-auto" />
