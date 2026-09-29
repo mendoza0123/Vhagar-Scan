@@ -111,8 +111,21 @@ export default async function BillPage({ params }: { params: { id: string } }) {
   const offerLines = parseOffers(sale.offer);
   const offerSum = offerLines.reduce((s, o) => s + o.amount, 0);
   const manualDiscount = Math.max(0, (Number(sale.discount) || 0) - offerSum);
-  const discountRows = offerLines.length + (manualDiscount > 0.5 ? 1 : 0);
+  const hasDiscount = offerLines.length > 0 || manualDiscount > 0.5;
+  // +1 for the Subtotal row that now precedes the discount lines
+  const discountRows = offerLines.length + (manualDiscount > 0.5 ? 1 : 0) + (hasDiscount ? 1 : 0);
   const padRows = Math.max(0, MIN_ROWS - sale.items.length - freebies.length - discountRows);
+
+  // The manual discount is a RUPEE amount, not a rate — staff type "15% off" into
+  // the discount box as 2534. Recover the rate when it lands cleanly on a whole
+  // percent of the subtotal, because "− ₹2,534" alone doesn't tell the customer
+  // what deal they actually got. Anything that isn't a clean percent stays a
+  // plain "Discount" rather than being rounded into a claim that isn't true.
+  // Computed on manualDiscount, NOT the stored total: named offers are already
+  // itemised on their own lines above, so including them would overstate the rate.
+  const discPct = sale.subtotal > 0 ? (manualDiscount / sale.subtotal) * 100 : 0;
+  const wholePct = Math.round(discPct);
+  const showPct = manualDiscount > 0.5 && wholePct >= 1 && Math.abs(discPct - wholePct) <= 0.2;
 
   // Short, professional note pre-filled into WhatsApp / Gmail. Staff attach the
   // downloaded PDF by hand — no link (wa.me or Gmail) can carry a file.
@@ -131,7 +144,30 @@ export default async function BillPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="flex min-h-screen flex-col gap-4 bg-slate-100 p-4 print:bg-white print:p-0">
-      <style dangerouslySetInnerHTML={{ __html: "@media print{@page{size:A4;margin:10mm}body{background:#fff}}" }} />
+      {/* Print rules matter: a long bill (13+ lines) spills onto a 2nd page, and
+          without these the break lands MID-ROW and orphans the total + footer.
+          - tr/avoid  : never slice a row in half across the page boundary
+          - thead     : repeat the QTY/DESCRIPTION header on page 2
+          - tfoot     : table-row-group so the TOTAL prints ONCE at the end
+                        (the print default, table-footer-group, repeats it on
+                        every page — a bill must not show TOTAL twice)
+          - .keep     : address / T&C / sign-off blocks stay whole            */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: [
+            "@media print{",
+            "@page{size:A4;margin:10mm}",
+            "body{background:#fff}",
+            "#bill-doc table{page-break-inside:auto;break-inside:auto}",
+            "#bill-doc tr{page-break-inside:avoid;break-inside:avoid}",
+            "#bill-doc thead{display:table-header-group}",
+            "#bill-doc tfoot{display:table-row-group}",
+            "#bill-doc .keep{page-break-inside:avoid;break-inside:avoid}",
+            "#bill-doc .nowrap{white-space:nowrap}",
+            "}",
+          ].join(""),
+        }}
+      />
       <header className="mx-auto flex w-full max-w-[820px] items-center justify-between print:hidden">
         <Link href="/sales" className="text-sm font-medium text-brand">← Sales</Link>
         <Link href="/" className="text-sm text-slate-500">Home</Link>
@@ -258,6 +294,13 @@ export default async function BillPage({ params }: { params: { id: string } }) {
                   <td className="border border-black px-3 py-2.5" />
                 </tr>
               ))}
+              {/* Subtotal first, so subtotal − discounts = TOTAL reads cleanly */}
+              {hasDiscount && (
+                <tr>
+                  <td className="border border-black px-3 py-2 text-right" colSpan={3}>Subtotal</td>
+                  <td className="border border-black px-3 py-2 text-right tabular-nums">{money(sale.subtotal)}</td>
+                </tr>
+              )}
               {offerLines.map((o, i) => (
                 <tr key={`offer-${i}`}>
                   <td className="border border-black px-3 py-2 text-right" colSpan={3}>{o.label}</td>
@@ -266,7 +309,9 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               ))}
               {manualDiscount > 0.5 && (
                 <tr>
-                  <td className="border border-black px-3 py-2 text-right" colSpan={3}>Discount</td>
+                  <td className="border border-black px-3 py-2 text-right" colSpan={3}>
+                    Discount{showPct ? ` — ${wholePct}% off` : ""}
+                  </td>
                   <td className="border border-black px-3 py-2 text-right tabular-nums">− {money(manualDiscount)}</td>
                 </tr>
               )}
@@ -291,7 +336,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
           )}
 
           {/* footer / contact */}
-          <div className="mt-3 border border-black px-4 py-4">
+          <div className="keep mt-3 border border-black px-4 py-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex items-start gap-3 text-[13px] leading-snug">
                 <PinIcon />
@@ -312,7 +357,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
           </div>
 
           {/* terms & conditions */}
-          <div className="mt-3 border border-black px-4 py-3">
+          <div className="keep mt-3 border border-black px-4 py-3">
             <p className="text-sm font-bold uppercase tracking-wide">Terms &amp; Conditions</p>
             <ul className="mt-1 space-y-0.5 text-[13px]">
               <li>• Thank you for your purchase.</li>
@@ -320,7 +365,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
             </ul>
           </div>
 
-          <div className="flex items-center justify-center gap-3 py-3">
+          <div className="keep flex items-center justify-center gap-3 py-3">
             <span className="h-px w-10 bg-black" />
             <span className="text-sm font-semibold uppercase tracking-[0.35em]">Own Your Flame</span>
             <span className="h-px w-10 bg-black" />
@@ -356,11 +401,14 @@ function LabelCell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+// Used for the Order No. / Date pair, which share one row. Those two values must
+// never wrap — a bill number broken over three lines is what made the header
+// look unstructured. min-w-0 lets the flex child shrink instead of overflowing.
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex">
       <LabelCell>{label}</LabelCell>
-      <div className="flex-1 px-4 py-3">{value}</div>
+      <div className="nowrap min-w-0 flex-1 whitespace-nowrap px-4 py-3">{value}</div>
     </div>
   );
 }
