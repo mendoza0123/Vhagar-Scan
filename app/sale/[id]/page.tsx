@@ -116,12 +116,6 @@ export default async function BillPage({ params }: { params: { id: string } }) {
   const discountRows = offerLines.length + (manualDiscount > 0.5 ? 1 : 0) + (hasDiscount ? 1 : 0);
   const padRows = Math.max(0, MIN_ROWS - sale.items.length - freebies.length - discountRows);
 
-  // Marks the totals block on a long bill. Currently INERT: there is deliberately
-  // no CSS behind .break-page, because forcing a page break there made html2pdf
-  // emit THREE pages instead of two. Kept as the hook if we revisit pagination —
-  // wire it up with `tr.break-page{page-break-before:always}` to re-enable.
-  const breakBeforeTotals = sale.items.length + freebies.length >= 15;
-
   // The manual discount is a RUPEE amount, not a rate — staff type "15% off" into
   // the discount box as 2534. Recover the rate when it lands cleanly on a whole
   // percent of the subtotal, because "− ₹2,534" alone doesn't tell the customer
@@ -325,39 +319,57 @@ export default async function BillPage({ params }: { params: { id: string } }) {
                   <td className="border border-black px-3 py-2.5" />
                 </tr>
               ))}
-              {/* Subtotal first, so subtotal − discounts = TOTAL reads cleanly */}
-              {hasDiscount && (
-                <tr className={breakBeforeTotals ? "break-page" : undefined}>
-                  <td className="border border-black px-3 py-2 text-right" colSpan={3}>Subtotal</td>
-                  <td className="border border-black px-3 py-2 text-right tabular-nums">{money(sale.subtotal)}</td>
-                </tr>
-              )}
-              {offerLines.map((o, i) => (
-                <tr key={`offer-${i}`}>
-                  <td className="border border-black px-3 py-2 text-right" colSpan={3}>{o.label}</td>
-                  <td className="border border-black px-3 py-2 text-right tabular-nums">− {money(o.amount)}</td>
-                </tr>
-              ))}
-              {manualDiscount > 0.5 && (
-                <tr>
-                  <td className="border border-black px-3 py-2 text-right" colSpan={3}>
-                    Discount{showPct ? ` — ${wholePct}% off` : ""}
-                  </td>
-                  <td className="border border-black px-3 py-2 text-right tabular-nums">− {money(manualDiscount)}</td>
-                </tr>
-              )}
             </tbody>
-            <tfoot>
-              <tr className="text-[15px] font-semibold">
-                <td className="border border-black px-3 py-3" colSpan={2}>
-                  <span className="text-xs uppercase tracking-wide text-slate-500">Sold by</span>{" "}
-                  {sale.sold_by || ""}
-                </td>
-                <td className="border border-black px-3 py-3 text-right uppercase">Total</td>
-                <td className="border border-black px-3 py-3 text-right text-lg tabular-nums">{money(sale.total)}</td>
-              </tr>
-            </tfoot>
           </table>
+          </div>
+
+          {/* ---- TOTALS: a SEPARATE table in a .keep block ----
+               These used to be the last rows of the items table, and html2pdf
+               sliced the Subtotal box clean in half at the page boundary — its
+               `avoid` option cannot hold a <tr>. As its own block-level element
+               the whole group is moved to the next page intact instead of being
+               cut. The colgroup mirrors the items table's column widths
+               (w-16 / auto / w-28 / w-32) so the borders still line up, and
+               -mt-px collapses the doubled edge where the two tables meet. */}
+          <div className="keep -mt-px">
+            <table className="w-full border-collapse text-[13px] sm:text-[15px]">
+              <colgroup>
+                <col className="w-16" />
+                <col />
+                <col className="w-28" />
+                <col className="w-32" />
+              </colgroup>
+              <tbody>
+                {hasDiscount && (
+                  <tr>
+                    <td className="border border-black px-3 py-2 text-right" colSpan={3}>Subtotal</td>
+                    <td className="border border-black px-3 py-2 text-right tabular-nums">{money(sale.subtotal)}</td>
+                  </tr>
+                )}
+                {offerLines.map((o, i) => (
+                  <tr key={`offer-${i}`}>
+                    <td className="border border-black px-3 py-2 text-right" colSpan={3}>{o.label}</td>
+                    <td className="border border-black px-3 py-2 text-right tabular-nums">− {money(o.amount)}</td>
+                  </tr>
+                ))}
+                {manualDiscount > 0.5 && (
+                  <tr>
+                    <td className="border border-black px-3 py-2 text-right" colSpan={3}>
+                      Discount{showPct ? ` — ${wholePct}% off` : ""}
+                    </td>
+                    <td className="border border-black px-3 py-2 text-right tabular-nums">− {money(manualDiscount)}</td>
+                  </tr>
+                )}
+                <tr className="text-[15px] font-semibold">
+                  <td className="border border-black px-3 py-3" colSpan={2}>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Sold by</span>{" "}
+                    {sale.sold_by || ""}
+                  </td>
+                  <td className="border border-black px-3 py-3 text-right uppercase">Total</td>
+                  <td className="border border-black px-3 py-3 text-right text-lg tabular-nums">{money(sale.total)}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           {sale.status !== "completed" && (

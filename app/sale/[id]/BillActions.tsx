@@ -102,7 +102,12 @@ export default function BillActions(p: Props) {
           // is the "untidy margin". A4 is 210x297; 14/12 reads like a document.
           margin: [14, 12, 14, 12],
           image: { type: "jpeg", quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, width: 820, windowWidth: 820 },
+          // NO `width` here. Forcing the canvas to 820px while the bill renders
+          // narrower baked dead space into the RIGHT of the image, so jsPDF
+          // centred a mostly-empty canvas and the bill sat off to the left.
+          // Letting html2canvas size to the element makes it fill the content
+          // box, so the left and right margins actually match.
+          html2canvas: { scale: 2, useCORS: true, windowWidth: 820 },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
           // html2pdf paginates by SLICING the rendered canvas, which is what cut
           // a row in half mid-page. Keep rows and the footer blocks whole; the
