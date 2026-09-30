@@ -97,12 +97,20 @@ export default function BillActions(p: Props) {
     try {
       return await html2pdf()
         .set({
-          margin: 6,
+          // [top, left, bottom, right] in mm. 6mm all round left the document
+          // crowding the paper edge and gave page 2 no top margin at all — this
+          // is the "untidy margin". A4 is 210x297; 14/12 reads like a document.
+          margin: [14, 12, 14, 12],
           image: { type: "jpeg", quality: 0.98 },
           html2canvas: { scale: 2, useCORS: true, width: 820, windowWidth: 820 },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-          // don't slice a row or the footer blocks across the page boundary
-          pagebreak: { mode: ["css", "legacy"], avoid: ["tr", ".keep"] },
+          // html2pdf paginates by SLICING the rendered canvas, which is what cut
+          // a row in half mid-page. Keep rows and the footer blocks whole; the
+          // bill may run to 2 pages and that is fine — tidy beats cramped.
+          // NOT 'avoid-all' — that treats the whole <table> as one unbreakable
+          // block and dumps a page-tall blank gap before it. 'css' mode reads the
+          // break-inside:avoid that .pdf-export puts on tr/.keep (see page.tsx).
+          pagebreak: { mode: ["css", "legacy"], avoid: [".keep"] },
         })
         .from(el)
         .outputPdf("blob");

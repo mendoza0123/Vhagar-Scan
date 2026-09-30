@@ -116,6 +116,12 @@ export default async function BillPage({ params }: { params: { id: string } }) {
   const discountRows = offerLines.length + (manualDiscount > 0.5 ? 1 : 0) + (hasDiscount ? 1 : 0);
   const padRows = Math.max(0, MIN_ROWS - sale.items.length - freebies.length - discountRows);
 
+  // Marks the totals block on a long bill. Currently INERT: there is deliberately
+  // no CSS behind .break-page, because forcing a page break there made html2pdf
+  // emit THREE pages instead of two. Kept as the hook if we revisit pagination —
+  // wire it up with `tr.break-page{page-break-before:always}` to re-enable.
+  const breakBeforeTotals = sale.items.length + freebies.length >= 15;
+
   // The manual discount is a RUPEE amount, not a rate — staff type "15% off" into
   // the discount box as 2534. Recover the rate when it lands cleanly on a whole
   // percent of the subtotal, because "− ₹2,534" alone doesn't tell the customer
@@ -144,55 +150,51 @@ export default async function BillPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="flex min-h-screen flex-col gap-4 bg-slate-100 p-4 print:bg-white print:p-0">
-      {/* TWO different outputs need the same compact sizing, and they do NOT
-          share a mechanism:
-            1. Ctrl+P / Save-as-PDF  -> the browser, via @media print
-            2. the "Download PDF" button -> html2pdf.js, which is html2canvas +
-               jsPDF. html2canvas RASTERISES THE LIVE DOM IN SCREEN MEDIA, so it
-               ignores @media print entirely. BillActions therefore tags the bill
-               with .pdf-export (and the body with .pdf-exporting) for the length
-               of the capture, and those rules live OUTSIDE the media query.
-          `compact()` emits the identical rule set for both, so the two outputs
-          can never drift apart. Screen/booth styling is untouched either way. */}
+      {/* The bill is a customer document: readable spacing beats cramming it onto
+          one sheet. An earlier version shrank everything to force a single page
+          and the rows came out clipped — don't do that again.
+
+          Two outputs, two mechanisms:
+            1. Ctrl+P / Save-as-PDF -> the browser, via @media print
+            2. the "Download PDF" button -> html2pdf.js (html2canvas + jsPDF),
+               which RASTERISES THE LIVE DOM IN SCREEN MEDIA and therefore
+               ignores @media print completely. BillActions tags the bill
+               .pdf-export for the capture, so those rules sit OUTSIDE the query.
+          Both only fix LAYOUT (full width, no page chrome, clean breaks). Neither
+          changes type size or padding. */}
       <style
         dangerouslySetInnerHTML={{
           __html: (() => {
-            const compact = (b: string) => [
-              // The app shell (app/layout.tsx) wraps the POS in max-w-md — right
-              // for a phone at the booth, but it strangles the bill on A4.
-              `${b === "#bill-doc" ? "body" : "body.pdf-exporting"} .max-w-md{max-width:none!important;width:100%!important}`,
-              `${b === "#bill-doc" ? "main" : "body.pdf-exporting main"}{min-height:0!important;padding:0!important;gap:0!important;background:#fff!important}`,
-              `${b}{font-size:10px!important;line-height:1.25!important;max-width:none!important;width:100%!important}`,
-              `${b}>div{padding:5px!important}`,
-              `${b} .bill-logo{padding-top:5px!important;padding-bottom:5px!important}`,
-              `${b} .bill-logo img{height:38px!important}`,
-              `${b} .bill-cell{padding:3px 7px!important;font-size:10px!important}`,
-              `${b} th,${b} td{padding:2.5px 7px!important;font-size:10px!important}`,
-              `${b} td img{height:15px!important;width:15px!important}`,
-              `${b} td span,${b} th{font-size:10px!important}`,
-              // totals + sign-off stay a touch larger so they read first
-              `${b} tfoot td{font-size:11px!important;padding:5px 7px!important}`,
-              `${b} .keep{padding:6px!important;margin-top:6px!important}`,
-              `${b} .keep p,${b} .keep span,${b} .keep li{font-size:9px!important;line-height:1.35!important}`,
-              `${b} .keep svg{width:11px;height:11px}`,
-              `${b} .keep span.flex{height:16px!important;width:16px!important}`,
+            // The app shell (app/layout.tsx) wraps the POS in max-w-md — right for
+            // a phone at the booth, wrong for a sheet of A4.
+            const layout = (scope: string, bill: string) => [
+              `${scope} .max-w-md{max-width:none!important;width:100%!important}`,
+              `${scope} main{min-height:0!important;padding:0!important;gap:0!important;background:#fff!important}`,
+              `${bill}{max-width:none!important;width:100%!important;box-shadow:none!important}`,
+              `${bill} .nowrap{white-space:nowrap}`,
+              // the contact column was breaking "+91-88303 97228" over three lines
+              `${bill} .keep span{white-space:nowrap}`,
+              // Keep rows and footer blocks whole. For the browser this is the
+              // normal print behaviour; for html2pdf its 'css' pagebreak mode
+              // reads these same declarations off the live DOM, which is the only
+              // way to stop it slicing a row in half as it cuts the canvas.
+              `${bill} tr{page-break-inside:avoid;break-inside:avoid}`,
+              `${bill} .keep{page-break-inside:avoid;break-inside:avoid}`,
             ].join("");
 
             return [
-              // 1) browser print
               "@media print{",
               "@page{size:A4;margin:12mm 10mm}",
               "html,body{background:#fff;margin:0;padding:0}",
+              // clean page breaks — never slice a row or a footer block
               "#bill-doc table{page-break-inside:auto;break-inside:auto}",
               "#bill-doc tr{page-break-inside:avoid;break-inside:avoid}",
               "#bill-doc thead{display:table-header-group}",
               "#bill-doc tfoot{display:table-row-group}",
               "#bill-doc .keep{page-break-inside:avoid;break-inside:avoid}",
-              "#bill-doc .nowrap{white-space:nowrap}",
-              compact("#bill-doc"),
+              layout("body", "#bill-doc"),
               "}",
-              // 2) html2pdf capture (screen media — no media query!)
-              compact("#bill-doc.pdf-export"),
+              layout("body.pdf-exporting", "#bill-doc.pdf-export"),
             ].join("");
           })(),
         }}
@@ -325,7 +327,7 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               ))}
               {/* Subtotal first, so subtotal − discounts = TOTAL reads cleanly */}
               {hasDiscount && (
-                <tr>
+                <tr className={breakBeforeTotals ? "break-page" : undefined}>
                   <td className="border border-black px-3 py-2 text-right" colSpan={3}>Subtotal</td>
                   <td className="border border-black px-3 py-2 text-right tabular-nums">{money(sale.subtotal)}</td>
                 </tr>
