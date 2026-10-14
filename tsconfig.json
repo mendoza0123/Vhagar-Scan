@@ -17,5 +17,6 @@
     "paths": { "@/*": ["./*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "comment": "scripts/ holds standalone node utilities (run-sql, self-checks) that are run directly with `node`, never bundled — they import with the real .ts extension Node needs, which tsc rejects.",
+  "exclude": ["node_modules", "scripts"]
 }

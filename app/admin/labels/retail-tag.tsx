@@ -10,6 +10,7 @@
 // none of them is decoration, so none of them should be dropped to win space.
 
 import { isTshirt } from "@/lib/product-type";
+import { shortColour } from "@/lib/short-colour";
 
 export type TagRow = {
   variant_sku: string;
@@ -41,7 +42,7 @@ export function barcodeFor(row: TagRow): { value: string; format: "EAN13" | "COD
 }
 
 // EAN-13 is printed in its conventional 1-6-6 grouping, which is how the eye
-// checks a number against a carton; Code128 just gets the SKU under it.
+// checks a number against a carton.
 function humanCode(value: string, retail: boolean) {
   if (!retail || value.length !== 13) return value;
   return `${value.slice(0, 1)} ${value.slice(1, 7)} ${value.slice(7)}`;
@@ -91,7 +92,7 @@ export function RetailTag({
       <div className="space-y-[0.4mm] text-[5.6pt]">
         <Field k="PRODUCT" v={product} />
         <Field k="Size" v={row.size} />
-        {row.color && <Field k="Colour" v={row.color} />}
+        {shortColour(row.color) && <Field k="Colour" v={shortColour(row.color)} />}
         <Field k="Mfg. Mo/Yr" v={row.mfg ?? "—"} />
         <Field k="Net Qty" v="1 N" />
       </div>
@@ -110,19 +111,30 @@ export function RetailTag({
         ) : (
           <div className="h-[13mm] w-[38mm] bg-slate-100" aria-hidden />
         )}
-        <p className="mt-[0.5mm] font-mono text-[5.4pt] font-semibold leading-none tracking-[0.08em]">
-          {humanCode(bar.value, bar.retail)}
-        </p>
+        {/* the barcode's OWN number, directly under it. Only a real EAN-13 has
+            one; while the barcode is still a Code128 of the SKU there is nothing
+            to print here, and the SKU sits under the QR instead of being shown
+            twice on a 45mm tag. */}
+        {bar.retail && (
+          <p className="mt-[0.5mm] font-mono text-[5.4pt] font-semibold leading-none tracking-[0.12em]">
+            {humanCode(bar.value, true)}
+          </p>
+        )}
       </div>
 
       {/* QR — the code our own POS and IMS scan; unchanged from the booth sticker */}
-      <div className="mt-[1.5mm] flex justify-center">
+      <div className="mt-[1.5mm] flex flex-col items-center">
         {qrUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={qrUrl} alt={row.variant_sku} className="tag-img h-[21mm] w-[21mm]" />
+          <img src={qrUrl} alt={row.variant_sku} className="tag-img h-[20mm] w-[20mm]" />
         ) : (
-          <div className="h-[21mm] w-[21mm] bg-slate-100" aria-hidden />
+          <div className="h-[20mm] w-[20mm] bg-slate-100" aria-hidden />
         )}
+        {/* the product code belongs to the QR: it is what the QR resolves to, and
+            what anyone keys in by hand when a scan won't take */}
+        <p className="mt-[0.4mm] font-mono text-[5.4pt] font-bold leading-none tracking-[0.06em]">
+          {row.variant_sku}
+        </p>
       </div>
 
       {/* manufacturer + consumer care — pushed to the foot of the tag */}
