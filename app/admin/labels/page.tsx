@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { matchesType, isTshirt, type ProductType } from "@/lib/product-type";
+import { RetailTag, barcodeFor, type TagRow } from "./retail-tag";
 
 type StockRow = {
   variant_sku: string;
@@ -42,7 +43,9 @@ function buildPrintCss(o: {
 .qr-label{width:${labelW}mm;height:${labelH}mm;padding:${PAD_MM}mm;font-size:${basePt}pt;border:${
     mediaMode === "a4" && showBorder ? "1px dashed #94a3b8" : "none"
   };}
-.qr-label img{width:${qrMM}mm;height:${qrMM}mm;}
+/* .tag-img is excluded: the retail tag sizes its own barcode and QR, and this
+   rule would stretch a 38×11mm barcode into a ${qrMM}mm square. */
+.qr-label img:not(.tag-img){width:${qrMM}mm;height:${qrMM}mm;}
 ${mediaMode === "a4" ? `.label-grid{gap:${a4Gap}mm;grid-template-columns:repeat(${a4Cols}, ${labelW}mm);}` : ""}
 `;
   const print =
@@ -66,7 +69,9 @@ export default function LabelsPage() {
   const [mediaMode, setMediaMode] = useState<MediaMode>("roll");
   const [labelW, setLabelW] = useState(45); // matches the loaded Endura roll (45 × 90 mm)
   const [labelH, setLabelH] = useState(90);
-  const [layout, setLayout] = useState<"vertical" | "horizontal">("vertical");
+  // "retail" is the statutory hang-tag (MRP, mfg month, maker, barcode + QR) for
+  // garments going to a shop; the other two are the plain booth sticker.
+  const [layout, setLayout] = useState<"vertical" | "horizontal" | "retail">("vertical");
 
   // A4-only
   const [a4Cols, setA4Cols] = useState(4);
@@ -87,10 +92,14 @@ export default function LabelsPage() {
 
   // QR cache (keyed by sku + pixel size so resizing regenerates)
   const [qrMap, setQrMap] = useState<Record<string, string>>({});
+  // retail tag: per-variant EAN + registration month, and the rendered barcodes
+  const [tagInfo, setTagInfo] = useState<Record<string, { ean13: string | null; mfg: string | null }>>({});
+  const [barMap, setBarMap] = useState<Record<string, string>>({});
   // per-piece unit codes for t-shirt variants (each physical tee = one unique QR)
   const [unitsByVariant, setUnitsByVariant] = useState<Record<string, string[]>>({});
   const [generating, setGenerating] = useState(false);
   const qrCache = useRef<Map<string, string>>(new Map());
+  const barCache = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     (async () => {
@@ -102,6 +111,21 @@ export default function LabelsPage() {
       }
     })();
   }, []);
+
+  // Retail-tag extras (EAN + registration month). Fetched once, independently of
+  // the stock rows, so the booth's v_stock payload stays exactly as it was.
+  useEffect(() => {
+    if (layout !== "retail" || Object.keys(tagInfo).length) return;
+    let cancelled = false;
+    fetch("/api/labels/tags", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: { variant_sku: string; ean13: string | null; mfg: string | null }[]) => {
+        if (cancelled || !Array.isArray(list)) return;
+        setTagInfo(Object.fromEntries(list.map((t) => [t.variant_sku, t])));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [layout, tagInfo]);
 
   // QR square size in mm (derived from label geometry + chosen layout)
   const horizontal = layout === "horizontal";
@@ -211,6 +235,52 @@ export default function LabelsPage() {
     () => Array.from(new Set(stickers.map((s) => s.code))),
     [stickers]
   );
+
+  // One barcode per VARIANT, not per piece: an EAN is a product number, so every
+  // tee of the same style+size shares it even though each has its own QR.
+  const tagSkus = useMemo(
+    () => Array.from(new Set(stickers.map((s) => s.row.variant_sku))),
+    [stickers]
+  );
+
+  useEffect(() => {
+    if (layout !== "retail") return;
+    const missing = tagSkus.filter((sku) => !barCache.current.has(sku));
+    if (missing.length === 0) {
+      setBarMap(Object.fromEntries(barCache.current));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const JsBarcode = (await import("jsbarcode")).default;
+      const bySku = new Map(stickers.map((s) => [s.row.variant_sku, s.row]));
+      // 120px tall at 2px/module: plenty of dots for a 203–300 dpi thermal head
+      const opts = { width: 2, height: 120, displayValue: false, margin: 0 } as const;
+      for (const sku of missing) {
+        if (cancelled) return;
+        const row = bySku.get(sku);
+        if (!row) continue;
+        const bar = barcodeFor({ ...row, ...tagInfo[sku] } as TagRow);
+        const canvas = document.createElement("canvas");
+        try {
+          JsBarcode(canvas, bar.value, { format: bar.format, ...opts });
+        } catch {
+          // a stored EAN that fails its own check digit would throw here — print
+          // the SKU rather than a blank box, and let the tag say it isn't retail
+          try {
+            JsBarcode(canvas, sku, { format: "CODE128", ...opts });
+          } catch {
+            continue;
+          }
+        }
+        barCache.current.set(sku, canvas.toDataURL("image/png"));
+      }
+      if (!cancelled) setBarMap(Object.fromEntries(barCache.current));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [layout, tagSkus, tagInfo, stickers]);
 
   // generate any QR codes we don't have at the current pixel size (cached)
   useEffect(() => {
@@ -350,6 +420,7 @@ export default function LabelsPage() {
               [
                 ["vertical", "QR on top"],
                 ["horizontal", "QR on left"],
+                ["retail", "Retail tag"],
               ] as const
             ).map(([v, label]) => (
               <button
@@ -632,7 +703,15 @@ export default function LabelsPage() {
             <div className="flex flex-col items-start gap-1 print:gap-0">
               {stickers.map(({ key, row, code }) => (
                 <div key={key} className="qr-label">
-                  <LabelContent row={row} code={code} qrUrl={qrFor(code)} horizontal={horizontal} qrMM={qrMM} />
+                  {layout === "retail" ? (
+                    <RetailTag
+                      row={{ ...row, ...tagInfo[row.variant_sku] } as TagRow}
+                      qrUrl={qrFor(code)}
+                      barUrl={barMap[row.variant_sku]}
+                    />
+                  ) : (
+                    <LabelContent row={row} code={code} qrUrl={qrFor(code)} horizontal={horizontal} qrMM={qrMM} />
+                  )}
                 </div>
               ))}
             </div>
@@ -642,13 +721,21 @@ export default function LabelsPage() {
                 <div className="label-grid">
                   {page.map(({ key, row, code }) => (
                     <div key={key} className="qr-label">
-                      <LabelContent
-                        row={row}
-                        code={code}
-                        qrUrl={qrFor(code)}
-                        horizontal={horizontal}
-                        qrMM={qrMM}
-                      />
+                      {layout === "retail" ? (
+                        <RetailTag
+                          row={{ ...row, ...tagInfo[row.variant_sku] } as TagRow}
+                          qrUrl={qrFor(code)}
+                          barUrl={barMap[row.variant_sku]}
+                        />
+                      ) : (
+                        <LabelContent
+                          row={row}
+                          code={code}
+                          qrUrl={qrFor(code)}
+                          horizontal={horizontal}
+                          qrMM={qrMM}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
