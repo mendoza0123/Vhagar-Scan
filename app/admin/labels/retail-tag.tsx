@@ -28,7 +28,7 @@ export type TagRow = {
 export const MAKER = {
   name: "LD Cotton Mills",
   lines: ["AC Building, Raj Laxmi Complex", "2nd Floor"],
-  email: "buisness@vhagar.co",
+  email: "business@vhagar.co",
 };
 
 // What the barcode carries. A real EAN-13 when the variant has one; until GS1

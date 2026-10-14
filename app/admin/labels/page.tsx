@@ -82,6 +82,8 @@ export default function LabelsPage() {
 
   // what to print
   const [styleCode, setStyleCode] = useState("all");
+  // 0 = print everything; otherwise cap the run at N stickers, one per style
+  const [sampleN, setSampleN] = useState(0);
   const [category, setCategory] = useState("all");
   const [type, setType] = useState<"all" | ProductType>("all");
   const [qtyMode, setQtyMode] = useState<QtyMode>("perPiece");
@@ -197,8 +199,22 @@ export default function LabelsPage() {
         for (let i = 0; i < n; i++) out.push({ key: `${r.variant_sku}-${i}`, row: r, code: r.variant_sku });
       }
     }
+    // Sample run — proof a handful on the real printer before spooling thousands.
+    // One sticker per STYLE (not per size), so the few you hold in your hand show
+    // different products rather than six sizes of the same shirt.
+    if (sampleN > 0) {
+      const seen = new Set<string>();
+      const proof: typeof out = [];
+      for (const s of out) {
+        if (seen.has(s.row.style_code)) continue;
+        seen.add(s.row.style_code);
+        proof.push(s);
+        if (proof.length >= sampleN) break;
+      }
+      return proof;
+    }
     return out;
-  }, [rows, styleCode, category, type, qtyMode, customCopies, manual, sizeSel, unitsByVariant]);
+  }, [rows, styleCode, category, type, qtyMode, customCopies, manual, sizeSel, unitsByVariant, sampleN]);
 
   // The size filter works when exactly ONE style is selected — either via the
   // Style dropdown, or a single tick in the manual picker.
@@ -510,6 +526,19 @@ export default function LabelsPage() {
 
         {/* filters */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <label className="text-xs text-slate-500">
+            Sample run
+            <select
+              value={sampleN}
+              onChange={(e) => setSampleN(Number(e.target.value))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm"
+            >
+              <option value={0}>Print everything</option>
+              <option value={5}>5 samples</option>
+              <option value={10}>10 samples</option>
+              <option value={25}>25 samples</option>
+            </select>
+          </label>
           <label className="text-xs text-slate-500">
             Style
             <select
