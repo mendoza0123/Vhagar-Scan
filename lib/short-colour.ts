@@ -23,6 +23,26 @@ const DESCRIPTOR = new Set([
 
 const FITS = 22; // characters that fit the Colour row at the tag's type size
 
+// Words that mean nothing on their own: "DARK BROWN" cut to "DARK" is worse than
+// useless, and doesn't tell DARK BROWN from DARK GREEN. These keep their partner.
+const MODIFIER = new Set([
+  "dark", "light", "off", "deep", "pale", "bright", "multi", "mid", "dull",
+  "jet", "hot", "ice", "sky", "navy", "royal", "baby", "dusty", "burnt",
+]);
+
+// The shortest label that still identifies a colour — for a carton list, where
+// three colours of the same style have to be told apart on one 45mm line.
+// One word when one word is a colour; two when the first is only a modifier.
+export function oneWordColour(raw: string | null | undefined): string {
+  const words = (raw ?? "").trim().replace(/\s+/g, " ").split(" ").filter(Boolean);
+  if (!words.length) return "";
+  const first = words[0];
+  if (words.length > 1 && MODIFIER.has(first.toLowerCase().replace(/[^a-z-]/g, ""))) {
+    return `${first} ${words[1]}`;
+  }
+  return first;
+}
+
 export function shortColour(raw: string | null | undefined): string {
   const v = (raw ?? "").trim().replace(/\s+/g, " ");
   if (v.length <= FITS) return v; // the common case — untouched

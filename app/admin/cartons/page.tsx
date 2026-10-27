@@ -10,7 +10,7 @@ type PackedCarton = {
   label: string | null;
   location: string | null;
   pieces: number;
-  products: { name: string; total: number; sizes: string }[];
+  products: { name: string; color: string; total: number; sizes: string }[];
 };
 
 // Bulk-print carton QR labels (QR opens the IMS carton page; label lists the
@@ -158,9 +158,14 @@ export default function CartonLabelsPage() {
                   {c.location ? ` · ${c.location}` : ""}
                 </p>
                 <div className="mt-[1mm] w-full border-t border-black pt-[1mm]">
-                  {c.products.slice(0, MAX_LINES).map((p) => (
-                    <div key={p.name} className="flex justify-between gap-1 text-[6pt] leading-[1.35]">
-                      <span className="min-w-0 truncate font-semibold">{p.name}</span>
+                  {/* key on name+colour, not name — the same style name appears
+                      several times in a box, once per colour */}
+                  {c.products.slice(0, MAX_LINES).map((p, i) => (
+                    <div key={`${p.name}-${p.color}-${i}`} className="flex justify-between gap-1 text-[6pt] leading-[1.35]">
+                      <span className="min-w-0 truncate font-semibold">
+                        {p.name}
+                        {p.color ? <span className="font-normal"> · {p.color}</span> : null}
+                      </span>
                       <span className="shrink-0">×{p.total} {p.sizes.replaceAll(" · ", " ")}</span>
                     </div>
                   ))}
