@@ -30,5 +30,8 @@ export async function GET(
   if (rows.length === 0) {
     return NextResponse.json({ error: "not_found", sku }, { status: 404 });
   }
-  return NextResponse.json(rows[0]);
+  // variant_of only rewrites the code when it WAS a per-piece unit, so a
+  // changed code is the tell. Hand it back: without it the unique sticker is
+  // thrown away here and checkout can't mark that exact tee sold.
+  return NextResponse.json({ ...rows[0], unit_code: sku === scanned ? null : scanned });
 }

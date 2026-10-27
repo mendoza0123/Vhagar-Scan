@@ -63,6 +63,14 @@ export async function POST(req: NextRequest) {
   if (items.length === 0)
     return NextResponse.json({ error: "empty_cart" }, { status: 400 });
 
+  // Unique per-piece t-shirt stickers scanned onto this cart. Flat across lines
+  // — mark_units_sold only moves units that are still 'in_stock', so a stale or
+  // repeated code is a no-op rather than an error.
+  const unitCodes = Array.from(new Set(rawItems.flatMap((it: any) =>
+    Array.isArray(it?.units)
+      ? it.units.map((u: any) => String(u).trim().toUpperCase()).filter(Boolean)
+      : [])));
+
   // ---- defensive needs_price guard (the UI enforces this too) ----
   const skus = items.map((i) => i.sku);
   const meta = await sql`
@@ -106,12 +114,27 @@ export async function POST(req: NextRequest) {
       : `VH-2026-${String(n).padStart(4, "0")}`;
 
     // Deduct the sold pieces from the index STAFF SAID they came from (rack /
-    // carton / display — display deducts nothing). Best-effort: a failure here
-    // never blocks the sale; qty_on_hand was already handled atomically above.
+    // carton / display). Best-effort: a failure here never blocks the sale;
+    // qty_on_hand was already handled atomically above.
+    // One statement, not two: on the HTTP driver a separate UPDATE could fail
+    // after the deduct landed, and then a void could never give the piece back.
+    // ponytail: a 'display' pick with nothing indexed in the Display box
+    // deducts nothing. Left as-is — guessing a carton instead would make THAT
+    // box wrong, and the index only ever under-claims, never oversells.
     try {
-      await sql`SELECT cartons_consume_src(${payload}::jsonb)`;
+      await sql`UPDATE sales SET loc_taken = cartons_consume_src(${payload}::jsonb) WHERE id = ${id}`;
     } catch {
       /* location index is a locator; the sale itself already succeeded */
+    }
+
+    // Retire the unique stickers that were scanned, so a tee's QR carries its
+    // own history instead of only moving the style+size total.
+    if (unitCodes.length) {
+      try {
+        await sql`SELECT mark_units_sold(${unitCodes}::text[], ${id})`;
+      } catch {
+        /* same: a locator, never a reason to lose the bill */
+      }
     }
 
     // Stamp a human-friendly bill number + address (delivery_method) — best

@@ -21,6 +21,8 @@ type Variant = {
   needs_price: boolean;
   qty_on_hand: number;
   category: string | null;
+  // set only when the scanned code was a per-piece t-shirt sticker
+  unit_code?: string | null;
 };
 
 type Source = "rack" | "carton" | "display";
@@ -41,6 +43,9 @@ type Line = {
   // where the piece physically came from — drives WHICH index the sale
   // deducts (rack vs carton vs neither). Never touches qty_on_hand.
   src?: Source;
+  // the unique t-shirt stickers scanned onto this line, so checkout can mark
+  // those exact pieces sold. Shirts share one QR per size and have none.
+  units?: string[];
 };
 
 const SRC_LABEL: Record<Source, string> = { rack: "🧺 Rack", carton: "📦 Carton", display: "👕 Display" };
@@ -296,7 +301,13 @@ export default function SellPage() {
         if (i >= 0) {
           const next = [...prev];
           // also backfill category on a line saved before the field existed
-          next[i] = { ...next[i], qty: next[i].qty + 1, qty_on_hand: v.qty_on_hand, category: v.category };
+          next[i] = {
+            ...next[i], qty: next[i].qty + 1, qty_on_hand: v.qty_on_hand, category: v.category,
+            // de-duped: scanning one sticker twice is still one unique piece
+            units: v.unit_code
+              ? Array.from(new Set([...(next[i].units || []), v.unit_code]))
+              : next[i].units,
+          };
           return next;
         }
         return [
@@ -313,6 +324,7 @@ export default function SellPage() {
             needs_price: v.needs_price,
             qty_on_hand: v.qty_on_hand,
             src: "rack", // the default grab spot; staff switch when they dig into a box
+            units: v.unit_code ? [v.unit_code] : undefined,
           },
         ];
       });
@@ -583,7 +595,7 @@ export default function SellPage() {
       offerParts.push(`Buy ${teePieces} t-shirts · flat off: ₹${offTee}`);
     if (reward) offerParts.push(`Mystery envelope: ₹${reward}`);
     const body = {
-      items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price), src: l.src || "rack" })),
+      items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price), src: l.src || "rack", units: l.units })),
       discount: discountNum + offerDiscount, // one figure on the bill; the split is in `offer`
       offer: offerParts.join(" + ") || null,
       soldBy: soldBy.trim() || null,
