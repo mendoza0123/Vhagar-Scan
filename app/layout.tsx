@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { SiteGate } from "@/components/site-gate";
+import { UpdateBanner } from "@/components/update-banner";
 
 export const metadata: Metadata = {
   title: "Vhagar POS",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <SiteGate>
+          <UpdateBanner />
           <div className="mx-auto min-h-full max-w-md">{children}</div>
         </SiteGate>
       </body>
