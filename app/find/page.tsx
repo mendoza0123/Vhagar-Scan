@@ -5,6 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { staffName } from "@/lib/staff";
 import { matchesType, type ProductType } from "@/lib/product-type";
+import { oneWordColour } from "@/lib/short-colour";
 
 const Scanner = dynamic(() => import("../sell/Scanner"), { ssr: false });
 
@@ -15,6 +16,9 @@ type Row = {
   carton_id: string; location: string | null; variant_sku: string;
   name: string; size: string; qty: number; is_rack: boolean; is_display?: boolean;
   category?: string | null;
+  // the REAL identity of a design. 16 different AR-3xx styles are all called
+  // "HS POLO", so the name alone cannot tell them apart.
+  style_code?: string; color?: string | null;
 };
 
 const SIZE_SORT = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "4XL"];
@@ -23,15 +27,22 @@ const sizeRank = (s: string) => {
   return i === -1 ? 99 : i;
 };
 
-// "EARTH PLAIN 06" → family EARTH PLAIN, design 06. The family is the leading
-// words with no digits; everything from the first digit-bearing token on is the
-// design code. ("PLAY Y5A183B" → PLAY / Y5A183B.)
-function splitFamily(name: string): { family: string; design: string } {
+// "EARTH PLAIN 06" → family EARTH PLAIN. The family is just the card heading
+// that gathers related styles; the leading words with no digits.
+function familyOf(name: string): string {
   const tokens = name.trim().split(/\s+/);
   let i = 0;
   while (i < tokens.length && !/\d/.test(tokens[i])) i++;
-  const family = tokens.slice(0, i).join(" ") || name;
-  return { family: family.toUpperCase(), design: tokens.slice(i).join(" ") || "—" };
+  return (tokens.slice(0, i).join(" ") || name).toUpperCase();
+}
+
+// What a design is CALLED on the shelf: its code, then its colour. This used to
+// be guessed from the product name, which works for "EARTH PLAIN 06" but leaves
+// every one of the 16 styles named plain "HS POLO" labelled "—" and
+// indistinguishable — so searching AR-301 found a pile that never said AR-301.
+function designLabel(r: Row): { key: string; code: string; color: string } {
+  const code = r.style_code || r.name;
+  return { key: code, code, color: oneWordColour(r.color) };
 }
 
 // Tiny pencil affordance shown on every location line (Rack / Display / carton)
@@ -147,14 +158,15 @@ export default function FindPage() {
         matchesType(typeFil, r.category) &&
         (sizeFil === "all" || r.size.toUpperCase() === sizeFil)
     );
-    const fams = new Map<string, { total: number; designs: Map<string, Row[]> }>();
+    const fams = new Map<string, { total: number; designs: Map<string, { code: string; color: string; rows: Row[] }> }>();
     for (const r of filtered) {
-      const { family, design } = splitFamily(r.name);
+      const family = familyOf(r.name);
+      const { key, code, color } = designLabel(r);
       const f = fams.get(family) || { total: 0, designs: new Map() };
       f.total += r.qty;
-      const d = f.designs.get(design) || [];
-      d.push(r);
-      f.designs.set(design, d);
+      const d = f.designs.get(key) || { code, color, rows: [] };
+      d.rows.push(r);
+      f.designs.set(key, d);
       fams.set(family, f);
     }
     return Array.from(fams.entries()).sort((a, b) => a[0].localeCompare(b[0]));
@@ -374,13 +386,14 @@ export default function FindPage() {
                 </button>
                 {open && (
                   <div className="mt-1 flex flex-col gap-1.5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                    {Array.from(f.designs.entries()).map(([design, list]) => (
-                      <div key={design} className="rounded-xl bg-slate-50 p-2">
+                    {Array.from(f.designs.entries()).map(([key, d]) => (
+                      <div key={key} className="rounded-xl bg-slate-50 p-2">
                         <p className="text-sm font-semibold">
-                          {fam} <span className="text-brand">{design}</span>
+                          <span className="text-brand">{d.code}</span>
+                          {d.color && <span className="ml-1.5 font-normal text-slate-500">· {d.color}</span>}
                         </p>
                         <ul className="mt-1 divide-y divide-slate-100">
-                          {[...list].sort((a, b) => sizeRank(a.size) - sizeRank(b.size)).map((r) => (
+                          {[...d.rows].sort((a, b) => sizeRank(a.size) - sizeRank(b.size)).map((r) => (
                             <li key={`${r.carton_id}-${r.variant_sku}`} className="flex items-center gap-3 py-1.5 text-sm">
                               <span className="w-10 shrink-0 rounded-lg bg-white px-2 py-0.5 text-center font-semibold">{r.size}</span>
                               <span className="min-w-0 flex-1">

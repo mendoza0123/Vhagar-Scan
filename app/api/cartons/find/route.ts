@@ -56,11 +56,13 @@ export async function GET(req: NextRequest) {
   //      card list on /find. ~a few hundred small rows; fine on the hotspot.
   if (req.nextUrl.searchParams.get("browse")) {
     const results = await sql`
-      SELECT carton_id, location, variant_sku, name, size, qty, category,
-             status = 'Rack' AS is_rack, status = 'Display' AS is_display
-      FROM v_carton_contents
-      WHERE status IN ('Packed', 'Rack', 'Display')
-      ORDER BY name, size
+      SELECT vc.carton_id, vc.location, vc.variant_sku, vc.name, vc.size, vc.qty,
+             vc.category, vc.style_code, p.color,
+             vc.status = 'Rack' AS is_rack, vc.status = 'Display' AS is_display
+      FROM v_carton_contents vc
+      JOIN products p ON p.style_code = vc.style_code
+      WHERE vc.status IN ('Packed', 'Rack', 'Display')
+      ORDER BY vc.name, vc.style_code, vc.size
       LIMIT 1500`;
     return NextResponse.json({ results });
   }
@@ -70,12 +72,15 @@ export async function GET(req: NextRequest) {
   if (q.length < 2) return NextResponse.json({ results: [] });
   const like = `%${q}%`;
   const results = await sql`
-    SELECT carton_id, location, variant_sku, name, size, qty, category,
-           status = 'Rack' AS is_rack, status = 'Display' AS is_display
-    FROM v_carton_contents
-    WHERE status IN ('Packed', 'Rack', 'Display')
-      AND (name ILIKE ${like} OR variant_sku ILIKE ${like} OR style_code ILIKE ${like})
-    ORDER BY name, size, (status IN ('Rack','Display')) DESC, qty DESC
+    SELECT vc.carton_id, vc.location, vc.variant_sku, vc.name, vc.size, vc.qty,
+           vc.category, vc.style_code, p.color,
+           vc.status = 'Rack' AS is_rack, vc.status = 'Display' AS is_display
+    FROM v_carton_contents vc
+    JOIN products p ON p.style_code = vc.style_code
+    WHERE vc.status IN ('Packed', 'Rack', 'Display')
+      AND (vc.name ILIKE ${like} OR vc.variant_sku ILIKE ${like}
+           OR vc.style_code ILIKE ${like} OR p.color ILIKE ${like})
+    ORDER BY vc.name, vc.style_code, vc.size, (vc.status IN ('Rack','Display')) DESC, vc.qty DESC
     LIMIT 100`;
   return NextResponse.json({ results });
 }
