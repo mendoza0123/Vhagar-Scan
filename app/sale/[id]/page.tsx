@@ -15,6 +15,10 @@ const FREEBIE_META: Record<string, { label: string; img: string; mrp: number }> 
   "key chain": KEY_CHAIN,
   keychain: KEY_CHAIN,
   kitchen: KEY_CHAIN, // bills written before the rename stored this as "Kitchen"
+  // ponytail: no "bag" entry until there is a bag photo + value. The fallback
+  // below already prints "Exclusive Vhagar Bag" with the 🎁 tile — pointing img
+  // at a missing PNG would show a broken image on a fully loaded bill instead,
+  // because the 404 lands before hydration can swap in the tile.
 };
 function parseFreebies(freebie: string | null) {
   return (freebie || "")
@@ -32,9 +36,8 @@ function parseFreebies(freebie: string | null) {
 }
 
 // The sell screen stores each applied offer as "Label …: ₹<amount>", joined with
-// " + " (e.g. "Buy 2 shirts · 20% off: ₹499 + Buy 2 t-shirts · flat off: ₹499").
-// Split it back so the customer bill shows the shirt and t-shirt offers on their
-// own lines. Bills written before this format end in ")" with no trailing
+// " + " (e.g. "Buy 3 get 20% off: ₹540 + 10-sec clock game: ₹100").
+// Split it back so the customer bill shows each offer on its own line. Bills written before this format end in ")" with no trailing
 // "₹<amount>", so they yield nothing here and fall back to one Discount line.
 function parseOffers(offer: string | null): { label: string; amount: number }[] {
   return (offer || "")

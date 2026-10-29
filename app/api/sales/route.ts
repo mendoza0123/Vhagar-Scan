@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
 import { billNo } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone";
+import { OFFER_SET } from "@/lib/offers";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,18 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "bad_json" }, { status: 400 });
   }
+
+  // The phone works the offer discount out, so a phone still holding an older
+  // sell screen would bill with that screen's offers (a booth phone stays open
+  // for days). Make it reload first; its cart lives in localStorage, so a
+  // reload loses nothing. Every older screen sends no offerSet at all.
+  if (body?.offerSet !== OFFER_SET)
+    return NextResponse.json(
+      {
+        error: "stale_offers",
+        message: "The offers have changed. Tap Reload at the top (or close and reopen the app), then charge again — the scanned items are kept.",
+      },
+      { status: 409 });
 
   const rawItems: any[] = Array.isArray(body?.items) ? body.items : [];
   const discount = Math.max(0, Number(body?.discount) || 0);

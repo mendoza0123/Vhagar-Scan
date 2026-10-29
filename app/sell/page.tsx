@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { money } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone";
-import { isTshirt } from "@/lib/product-type";
+import { OFFER_SET, tierPct, CLOCK_OFF, priceBill } from "@/lib/offers";
 
 // Scanner is client-only (camera). ssr:false keeps html5-qrcode off the server.
 const Scanner = dynamic(() => import("./Scanner"), { ssr: false });
@@ -36,10 +35,6 @@ type Line = {
   qty: number;
   needs_price: boolean;
   qty_on_hand: number;
-  // Drives offer eligibility: the Buy-2/3/4 tier and the mystery envelope are
-  // SHIRT-ONLY. A cart saved before this field existed has it undefined, which
-  // reads as a shirt — so a sale already in progress keeps its current pricing.
-  category?: string | null;
   // where the piece physically came from — drives WHICH index the sale
   // deducts (rack vs carton vs neither). Never touches qty_on_hand.
   src?: Source;
@@ -62,14 +57,10 @@ type Receipt = {
 const CART_KEY = "vhagar.cart.v2";
 const DISCOUNT_KEY = "vhagar.discount.v2";
 const SOLDBY_KEY = "vhagar.soldBy.v1";
-// Offer 4 (mystery envelope) result, written by /reward. Survives refresh; a
-// checkout or removing the offer consumes it. Same literal in app/reward/page.tsx.
-const REWARD_KEY = "vhagar.reward.v1";
-// Bill total BEFORE the mystery reward — the ₹4,999 unlock basis, shared with
-// /reward so both gate on the same number. Same literal in app/reward/page.tsx.
-const MYSTERY_KEY = "vhagar.mysbasis.v1";
-const OFFER4_MIN = 4999;
-const CAP_MIN = 2499; // free cap on bills of ₹2,499+ (poster)
+// This customer's offer choices — a clock win, a Buy-N offer staff removed, the
+// gifts tapped in — kept like the discount, so a refresh or a trip to Stock
+// mid-sale can't quietly change the bill.
+const OFFERS_KEY = "vhagar.offers.v1";
 
 // The cart persists in localStorage so a flaky-network refresh never loses a
 // sale. Flip side: a customer walks off, the browser gets minimized/closed, and
@@ -81,8 +72,9 @@ const STASH_KEY = "vhagar.cart.stash.v1";
 const STALE_MS = 90_000;
 
 // Freebie options — each can be given in a quantity via +/- on the sell screen.
-const FREEBIE_OPTIONS = ["Cap", "Key Chain"] as const;
-const NO_FREEBIES: Record<string, number> = { Cap: 0, "Key Chain": 0 };
+// None is added automatically: staff give what they choose.
+const FREEBIE_OPTIONS = ["Cap", "Key Chain", "Bag"] as const;
+const NO_FREEBIES: Record<string, number> = { Cap: 0, "Key Chain": 0, Bag: 0 };
 
 // "Sold by" is WHO CLOSED THE SALE — deliberately separate from the gate login
 // (that's who unlocked the device; the two aren't always the same person).
@@ -131,18 +123,11 @@ function feedback(ok: boolean) {
 }
 
 export default function SellPage() {
-  const router = useRouter();
   const [scanning, setScanning] = useState(false);
-  // Offers (poster v2): Buy 2/3/4 = 20/30/40% off applies AUTOMATICALLY —
-  // tierDismissed is the staff escape hatch. Mystery envelope is unchanged.
+  // Buy 2/3/4 = 10/20/30% off applies AUTOMATICALLY — tierDismissed is the staff
+  // escape hatch.
   const [tierDismissed, setTierDismissed] = useState(false);
-  // T-shirt offer: Buy 2 = flat ₹499 off · Buy 3+ = flat ₹999 off. Applies to the
-  // t-shirt part of the bill, stacks with the shirt offer. teeDismissed = escape hatch.
-  const [teeDismissed, setTeeDismissed] = useState(false);
-  const [reward, setReward] = useState<number | null>(null); // Mystery amount won
-  // free keychain rides along on every purchase — auto-added once per sale
-  const keychainAuto = useRef(false);
-  const capAuto = useRef(false); // did WE auto-add the ₹2,499+ cap?
+  const [clockWon, setClockWon] = useState(false); // 10-sec clock game: ₹100 off
   const [cart, setCart] = useState<Line[]>([]);
   // pieces set aside by the stale-cart guard, shown in the Undo banner
   const [staleCount, setStaleCount] = useState<number | null>(null);
@@ -174,6 +159,15 @@ export default function SellPage() {
       .join(" + ") || null;
   const bumpFreebie = (f: string, d: number) =>
     setFreebieCounts((c) => ({ ...c, [f]: Math.max(0, (c[f] || 0) + d) }));
+  // The deal agreed with the customer at the counter, on top of the cart: the
+  // typed discount, an offer staff removed, a clock win, the gifts tapped in.
+  // Cleared with the bill, so none of it lands on the next customer's.
+  const resetDeal = () => {
+    setDiscount("0");
+    setTierDismissed(false);
+    setClockWon(false);
+    setFreebieCounts({ ...NO_FREEBIES });
+  };
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Variant[]>([]);
@@ -207,16 +201,15 @@ export default function SellPage() {
         }));
         localStorage.removeItem(CART_KEY);
         localStorage.removeItem(DISCOUNT_KEY);
-        localStorage.removeItem(REWARD_KEY); // the envelope was that bill's
+        localStorage.removeItem(OFFERS_KEY); // those were that customer's
       } else {
         if (saved.length) setCart(saved);
         const d = localStorage.getItem(DISCOUNT_KEY);
         if (d) setDiscount(d);
-        const r = localStorage.getItem(REWARD_KEY); // back from /reward
-        if (r) {
-          const j = JSON.parse(r);
-          if (j?.amount) setReward(Number(j.amount));
-        }
+        const o = JSON.parse(localStorage.getItem(OFFERS_KEY) || "{}");
+        if (o.clock) setClockWon(true);
+        if (o.tierOff) setTierDismissed(true);
+        if (o.gifts) setFreebieCounts({ ...NO_FREEBIES, ...o.gifts });
       }
 
       // an unactioned stash (from this visit or an earlier one) shows the banner
@@ -244,13 +237,7 @@ export default function SellPage() {
       const stash = { cart: cartRef.current, discount: discountRef.current };
       try { localStorage.setItem(STASH_KEY, JSON.stringify(stash)); } catch { /* noop */ }
       setCart([]);
-      setDiscount("0");
-      setFreebieCounts({ ...NO_FREEBIES });
-      setTierDismissed(false);
-      setTeeDismissed(false);
-      keychainAuto.current = false;
-      capAuto.current = false;
-      clearReward();
+      resetDeal();
       setStaleCount(stash.cart.reduce((n, l) => n + l.qty, 0));
     };
     document.addEventListener("visibilitychange", onVisible);
@@ -270,6 +257,10 @@ export default function SellPage() {
     discountRef.current = discount;
     if (hydrated) localStorage.setItem(DISCOUNT_KEY, discount);
   }, [discount, hydrated]);
+  useEffect(() => {
+    if (hydrated)
+      localStorage.setItem(OFFERS_KEY, JSON.stringify({ clock: clockWon, tierOff: tierDismissed, gifts: freebieCounts }));
+  }, [clockWon, tierDismissed, freebieCounts, hydrated]);
   useEffect(() => {
     if (hydrated) localStorage.setItem(SOLDBY_KEY, soldBy);
   }, [soldBy, hydrated]);
@@ -300,9 +291,8 @@ export default function SellPage() {
         const i = prev.findIndex((l) => l.sku === v.variant_sku);
         if (i >= 0) {
           const next = [...prev];
-          // also backfill category on a line saved before the field existed
           next[i] = {
-            ...next[i], qty: next[i].qty + 1, qty_on_hand: v.qty_on_hand, category: v.category,
+            ...next[i], qty: next[i].qty + 1, qty_on_hand: v.qty_on_hand,
             // de-duped: scanning one sticker twice is still one unique piece
             units: v.unit_code
               ? Array.from(new Set([...(next[i].units || []), v.unit_code]))
@@ -320,7 +310,6 @@ export default function SellPage() {
             listedPrice: v.price,
             price: v.needs_price ? "" : String(v.price),
             qty: 1,
-            category: v.category,
             needs_price: v.needs_price,
             qty_on_hand: v.qty_on_hand,
             src: "rack", // the default grab spot; staff switch when they dig into a box
@@ -426,7 +415,7 @@ export default function SellPage() {
   const removeLine = (sku: string) => setCart((prev) => prev.filter((l) => l.sku !== sku));
   const clearCart = () => {
     setCart([]);
-    setDiscount("0");
+    resetDeal();
     setError(null);
   };
 
@@ -464,87 +453,25 @@ export default function SellPage() {
   );
   const pieces = useMemo(() => cart.reduce((n, l) => n + l.qty, 0), [cart]);
 
-  // ---- offer bases ----
-  // The Buy-2/3/4 % tier is SHIRT-ONLY (keys off shirtPieces / shirtSubtotal).
-  // The t-shirt flat offer keys off the tee part. The mystery envelope, free cap
-  // and free keychain all key off the WHOLE bill (shirts + t-shirts).
-  const shirtPieces = useMemo(
-    () => cart.reduce((n, l) => (isTshirt(l.category) ? n : n + l.qty), 0),
-    [cart]
-  );
-  const shirtSubtotal = useMemo(
-    () => cart.reduce((s, l) => (isTshirt(l.category) ? s : s + (Number(l.price) || 0) * l.qty), 0),
-    [cart]
-  );
-  const teePieces = pieces - shirtPieces;
-  const teeSubtotal = subtotal - shirtSubtotal;
+  // ---- offers + final bill (rules in lib/offers.ts) ----
+  // Buy 2/3/4 = 10/20/30% off the whole bill — every piece counts.
+  const { pct, tierAmt, offTier, offClock, offerDiscount, discountNum, total } =
+    priceBill({ subtotal, pieces, discount, tierDismissed, clockWon });
+  const tierLabel = `Buy ${Math.min(pieces, 4)}${pieces > 4 ? "+" : ""} get ${pct}% off`;
 
-  // Buy 2 = 20% · Buy 3 = 30% · Buy 4+ = 40% — on the SHIRT part of the bill.
-  const tierPct = shirtPieces >= 4 ? 40 : shirtPieces === 3 ? 30 : shirtPieces === 2 ? 20 : 0;
-  const tierAmt = Math.round((shirtSubtotal * tierPct) / 100);
-  const offTier = !tierDismissed && tierPct > 0 ? tierAmt : 0;
-
-  // T-shirts: Buy 2 = flat ₹499 off · Buy 3+ = flat ₹999 off — on the TEE part of
-  // the bill, stacks with the shirt offer. Never discount more than the t-shirts
-  // are worth (a cheap 3-tee bill caps the ₹999 at the tee subtotal).
-  const teeFlat = teePieces >= 3 ? 999 : teePieces === 2 ? 499 : 0;
-  const teeAmt = Math.min(teeFlat, teeSubtotal);
-  const offTee = !teeDismissed && teeFlat > 0 ? teeAmt : 0;
-
-  const offerDiscount = offTier + offTee + (reward || 0);
-
-  // Final bill AFTER offers + manual discount. The free cap keys off this, not
-  // the pre-discount subtotal, so a bill that drops under ₹2,499 once the Buy-2
-  // discount lands doesn't get the cap.
-  const discountNum = Math.min(Math.max(0, Number(discount) || 0), Math.max(0, subtotal - offerDiscount));
-  const total = Math.max(0, subtotal - discountNum - offerDiscount);
-  // The mystery envelope unlocks on the bill total EXCLUDING its own reward, so
-  // winning a reward can't drop the bill under ₹4,999 and cancel itself.
-  const billBeforeReward = total + (reward || 0);
-
-  const clearReward = useCallback(() => {
-    setReward(null);
-    try { localStorage.removeItem(REWARD_KEY); } catch { /* noop */ }
-  }, []);
-
-  // free keychain on every purchase — auto-add ONCE per sale, but never fight
-  // staff who deliberately set it back to 0
+  // Emptying the cart a line at a time is the other way a bill ends, so the
+  // deal goes with the last piece. Said out loud, because it can also be the
+  // same customer swapping their only piece for a new size.
+  // (Clear, checkout and the stale-cart guard reset in the same render, so they
+  // never reach this with anything left to clear.)
+  const hasDeal =
+    Number(discount) > 0 || clockWon || tierDismissed || Object.values(freebieCounts).some((n) => n > 0);
   useEffect(() => {
-    if (pieces > 0 && !keychainAuto.current) {
-      keychainAuto.current = true;
-      setFreebieCounts((c) => ({ ...c, "Key Chain": Math.max(1, c["Key Chain"] || 0) }));
-    }
-    if (pieces === 0) keychainAuto.current = false;
-  }, [pieces]);
-
-  // free cap on bills of ₹2,499+ — auto-add ONE cap, and take back only the one
-  // WE added if the bill drops under the line. A cap staff placed by hand is
-  // never touched, and staff removing the auto one isn't fought either.
-  useEffect(() => {
-    if (total >= CAP_MIN && !capAuto.current) {
-      setFreebieCounts((c) => {
-        if (c.Cap) return c; // one's already on the bill — nothing to add
-        capAuto.current = true;
-        return { ...c, Cap: 1 };
-      });
-    } else if (total < CAP_MIN && capAuto.current) {
-      capAuto.current = false;
-      setFreebieCounts((c) => ({ ...c, Cap: Math.max(0, (c.Cap || 0) - 1) }));
-    }
-  }, [total]);
-  // Mystery envelope unlocks on the bill TOTAL (shirts + t-shirts, after offers)
-  // of ₹4,999+ — drop under that and the won reward is taken back.
-  useEffect(() => {
-    if (reward && cart.length > 0 && billBeforeReward < OFFER4_MIN) {
-      clearReward();
-      showToast("Bill dropped under ₹4,999 — mystery reward removed", "warn");
-    }
-  }, [reward, billBeforeReward, cart.length, clearReward, showToast]);
-  // Share the unlock basis with /reward so it gates on the same number the sell
-  // screen shows, instead of re-deriving the offers from the cart.
-  useEffect(() => {
-    if (hydrated) localStorage.setItem(MYSTERY_KEY, String(billBeforeReward));
-  }, [billBeforeReward, hydrated]);
+    if (!hydrated || pieces > 0 || !hasDeal) return;
+    resetDeal();
+    showToast("Cart emptied — discount, offers and gifts reset", "warn");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pieces, hydrated, hasDeal]);
 
   const blockingLines = cart.filter((l) => lineBlock(l) !== null);
   // Name + a REAL mobile are mandatory — 10 digits starting 6-9 (+91/0 ok),
@@ -589,12 +516,10 @@ export default function SellPage() {
     const offerParts: string[] = [];
     // Customer-facing, itemised on the bill. Each part ends ": ₹<amount>" so the
     // bill can split it back into separate discount lines (see app/sale/[id]).
-    if (offTier > 0)
-      offerParts.push(`Buy ${Math.min(shirtPieces, 4)}${shirtPieces > 4 ? "+" : ""} shirts · ${tierPct}% off: ₹${offTier}`);
-    if (offTee > 0)
-      offerParts.push(`Buy ${teePieces} t-shirts · flat off: ₹${offTee}`);
-    if (reward) offerParts.push(`Mystery envelope: ₹${reward}`);
+    if (offTier > 0) offerParts.push(`${tierLabel}: ₹${offTier}`);
+    if (offClock > 0) offerParts.push(`10-sec clock game: ₹${offClock}`);
     const body = {
+      offerSet: OFFER_SET,
       items: cart.map((l) => ({ sku: l.sku, qty: l.qty, price: Number(l.price), src: l.src || "rack", units: l.units })),
       discount: discountNum + offerDiscount, // one figure on the bill; the split is in `offer`
       offer: offerParts.join(" + ") || null,
@@ -643,9 +568,6 @@ export default function SellPage() {
         total,
       });
       feedback(true);
-      setTierDismissed(false);
-      setTeeDismissed(false);
-      clearReward(); // the envelope was for THIS bill
       // a name entered via "Others…" is now a real billed name — list it here
       // too, so it shows without waiting for a reload/refetch
       const sb = soldBy.trim();
@@ -659,7 +581,6 @@ export default function SellPage() {
       setPayments(["upi"]);
       setChannel("Exhibition");
       setChannelOther("");
-      setFreebieCounts({ ...NO_FREEBIES });
       setStatus("idle");
     } catch {
       // network failure — DO NOT lose the cart; let them retry
@@ -945,96 +866,45 @@ export default function SellPage() {
               );
             })}
           </div>
-          {total >= CAP_MIN && (freebieCounts.Cap || 0) > 0 ? (
-            <p className="text-xs font-medium text-emerald-700">🧢 Free cap added — bill is ₹2,499+</p>
-          ) : total > 0 && total < CAP_MIN ? (
-            <p className="text-xs text-slate-400">
-              Free cap at ₹2,499+ (₹{(CAP_MIN - total).toLocaleString("en-IN")} to go)
-            </p>
-          ) : null}
+          <p className="text-xs text-slate-400">Nothing is added for free automatically — tap + for each gift.</p>
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Offers</p>
-          {/* Shirt offer — Buy 2/3/4 = 20/30/40% off, shirts only */}
-          {shirtPieces > 0 &&
-            (offTier > 0 ? (
-              <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-bold text-emerald-800">
-                    🎉 BUY {Math.min(shirtPieces, 4)}{shirtPieces > 4 ? "+" : ""} SHIRTS = {tierPct}% OFF
-                  </p>
-                  <span className="text-base font-bold tabular-nums text-emerald-700">− {money(offTier)}</span>
-                </div>
-                <p className="mt-0.5 text-xs text-emerald-700">
-                  Applied to shirts · free keychain added
-                  {shirtPieces === 2 && " · 1 more shirt = 30% off"}
-                  {shirtPieces === 3 && " · 1 more shirt = 40% off"}
-                </p>
-                <button onClick={() => setTierDismissed(true)} className="mt-1 text-xs text-emerald-600 underline">
-                  Remove this offer
-                </button>
+          {/* Buy 2/3/4 = 10/20/30% off — every piece counts, shirt or t-shirt */}
+          {offTier > 0 ? (
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold uppercase text-emerald-800">🎉 {tierLabel}</p>
+                <span className="text-base font-bold tabular-nums text-emerald-700">− {money(offTier)}</span>
               </div>
-            ) : tierPct > 0 ? (
-              <button
-                onClick={() => setTierDismissed(false)}
-                className="rounded-xl border border-dashed border-emerald-300 bg-white px-3 py-2 text-left text-sm text-slate-600"
-              >
-                Shirt offer removed — tap to re-apply Buy {Math.min(shirtPieces, 4)} = {tierPct}% off (−{money(tierAmt)})
+              {pieces < 4 && (
+                <p className="mt-0.5 text-xs text-emerald-700">1 more piece = {tierPct(pieces + 1)}% off</p>
+              )}
+              <button onClick={() => setTierDismissed(true)} className="mt-1 text-xs text-emerald-600 underline">
+                Remove this offer
               </button>
-            ) : (
-              <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                🏷 Shirts: Buy 2 = <b>20%</b> · Buy 3 = <b>30%</b> · Buy 4 = <b>40%</b> off — add 1 more shirt to unlock
-              </p>
-            ))}
-
-          {/* T-shirt offer — Buy 2 = flat ₹499 off, Buy 3+ = flat ₹999 off */}
-          {teePieces > 0 &&
-            (offTee > 0 ? (
-              <div className="rounded-xl border border-violet-300 bg-violet-50 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-bold text-violet-800">
-                    👕 BUY {teePieces >= 3 ? "3+" : "2"} T-SHIRTS = ₹{teePieces >= 3 ? "999" : "499"} OFF
-                  </p>
-                  <span className="text-base font-bold tabular-nums text-violet-700">− {money(offTee)}</span>
-                </div>
-                <p className="mt-0.5 text-xs text-violet-700">
-                  Applied to t-shirts
-                  {teePieces === 2 && " · 1 more t-shirt = ₹999 off"}
-                </p>
-                <button onClick={() => setTeeDismissed(true)} className="mt-1 text-xs text-violet-600 underline">
-                  Remove this offer
-                </button>
-              </div>
-            ) : teeFlat > 0 ? (
-              <button
-                onClick={() => setTeeDismissed(false)}
-                className="rounded-xl border border-dashed border-violet-300 bg-white px-3 py-2 text-left text-sm text-slate-600"
-              >
-                T-shirt offer removed — tap to re-apply (−{money(teeAmt)})
-              </button>
-            ) : (
-              <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                👕 T-shirts: Buy 2 = <b>₹499</b> off · Buy 3 = <b>₹999</b> off — add 1 more t-shirt to unlock
-              </p>
-            ))}
-
-          {/* nothing scanned yet — show both offers so staff can quote them */}
-          {shirtPieces === 0 && teePieces === 0 && (
+            </div>
+          ) : pct > 0 ? (
+            <button
+              onClick={() => setTierDismissed(false)}
+              className="rounded-xl border border-dashed border-emerald-300 bg-white px-3 py-2 text-left text-sm text-slate-600"
+            >
+              Offer removed — tap to re-apply {tierLabel} (−{money(tierAmt)})
+            </button>
+          ) : (
             <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              🏷 Shirts: Buy 2/3/4 = <b>20/30/40%</b> off · 👕 T-shirts: Buy 2 = <b>₹499</b>, Buy 3 = <b>₹999</b> off
+              🏷 Buy 2 = <b>10%</b> · Buy 3 = <b>20%</b> · Buy 4 = <b>30%</b> off — add 1 more piece to unlock
             </p>
           )}
+
+          {/* 10-sec clock game — tapped by staff once the customer has stopped it at 10.00 s */}
           <button
-            onClick={() => router.push("/reward")}
-            disabled={billBeforeReward < OFFER4_MIN && !reward}
-            className={`rounded-xl border px-3 py-2.5 text-sm font-medium disabled:opacity-40 ${reward ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
+            onClick={() => setClockWon((w) => !w)}
+            className={`rounded-xl border px-3 py-2.5 text-left text-sm font-medium ${clockWon ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-600"}`}
           >
-            {reward ? `🎁 Mystery envelope · ₹${reward} won ✓` : "🎁 Mystery envelope"}
+            {clockWon
+              ? `⏱ Clock stopped at 10.00 s · ${money(offClock)} off ✓ (tap to undo)`
+              : `⏱ Stopped the clock at 10.00 s? Tap for ₹${CLOCK_OFF} off`}
           </button>
-          {billBeforeReward < OFFER4_MIN && !reward && (
-            <p className="text-xs text-slate-400">
-              Mystery envelope unlocks at ₹4,999+ (now ₹{billBeforeReward.toLocaleString("en-IN")})
-            </p>
-          )}
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Customer &amp; payment</p>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (required)" className={`rounded-xl border px-4 py-2.5 text-base outline-none focus:border-brand ${nameOk ? "border-slate-300" : "border-amber-400 bg-amber-50"}`} />
@@ -1101,26 +971,18 @@ export default function SellPage() {
           </div>
           {offTier > 0 && (
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-slate-500">🎉 Buy {Math.min(shirtPieces, 4)}{shirtPieces > 4 ? "+" : ""} shirts · {tierPct}% off
+              <span className="text-slate-500">🎉 {tierLabel}
                 <button onClick={() => setTierDismissed(true)} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
               </span>
               <span className="font-medium text-emerald-700">− {money(offTier)}</span>
             </div>
           )}
-          {offTee > 0 && (
+          {offClock > 0 && (
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-slate-500">👕 Buy {teePieces >= 3 ? "3+" : "2"} t-shirts · flat off
-                <button onClick={() => setTeeDismissed(true)} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
+              <span className="text-slate-500">⏱ 10-sec clock game
+                <button onClick={() => setClockWon(false)} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
               </span>
-              <span className="font-medium text-violet-700">− {money(offTee)}</span>
-            </div>
-          )}
-          {!!reward && (
-            <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="text-slate-500">🎁 Mystery envelope
-                <button onClick={clearReward} className="ml-1.5 text-xs text-slate-400 underline">✕</button>
-              </span>
-              <span className="font-medium text-emerald-700">− {money(reward)}</span>
+              <span className="font-medium text-emerald-700">− {money(offClock)}</span>
             </div>
           )}
           <div className="mb-3 flex items-center justify-between text-lg font-bold">
@@ -1172,9 +1034,8 @@ export default function SellPage() {
             <div className="mt-3 space-y-1 text-sm">
               <Row label="Subtotal" value={money(subtotal)} />
               {discountNum > 0 && <Row label="Discount" value={`− ${money(discountNum)}`} />}
-              {offTier > 0 && <Row label={`Buy ${Math.min(shirtPieces, 4)}${shirtPieces > 4 ? "+" : ""} shirts · ${tierPct}% off`} value={`− ${money(offTier)}`} />}
-              {offTee > 0 && <Row label={`Buy ${teePieces >= 3 ? "3+" : "2"} t-shirts · flat off`} value={`− ${money(offTee)}`} />}
-              {!!reward && <Row label="Mystery envelope" value={`− ${money(reward)}`} />}
+              {offTier > 0 && <Row label={tierLabel} value={`− ${money(offTier)}`} />}
+              {offClock > 0 && <Row label="10-sec clock game" value={`− ${money(offClock)}`} />}
               <div className="flex justify-between pt-1 text-lg font-bold">
                 <span>Total</span>
                 <span>{money(total)}</span>

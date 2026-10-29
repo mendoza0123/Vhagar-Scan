@@ -6,19 +6,20 @@ import { useRouter } from "next/navigation";
 import { normalizePhone } from "@/lib/phone";
 import { staffName } from "@/lib/staff";
 
-const FREEBIE_NAMES = ["Cap", "Key Chain"] as const;
+const FREEBIE_NAMES = ["Cap", "Key Chain", "Bag"] as const;
 // same standing staff list + self-growing /api/staff union as the sell screen
 const BASE_STAFF = ["Aditya", "Naushi", "Angel"];
 const OTHER = "__other__";
 
 // "Cap x2 + Key Chain x1" (or legacy "Cap" / "Kitchen") → counts per freebie.
 function parseFreebieCounts(s: string | null): Record<string, number> {
-  const counts: Record<string, number> = { Cap: 0, "Key Chain": 0 };
+  const counts: Record<string, number> = { Cap: 0, "Key Chain": 0, Bag: 0 };
   for (const tok of (s || "").split("+")) {
     const m = tok.trim().match(/^(.*?)(?:\s*x\s*(\d+))?$/i);
     if (!m || !m[1]) continue;
     const raw = m[1].trim().toLowerCase();
-    const name = raw === "cap" ? "Cap" : raw === "key chain" || raw === "keychain" || raw === "kitchen" ? "Key Chain" : null;
+    const name = raw === "cap" ? "Cap" : raw === "bag" ? "Bag"
+      : raw === "key chain" || raw === "keychain" || raw === "kitchen" ? "Key Chain" : null;
     if (name) counts[name] += Math.max(1, parseInt(m[2] || "1", 10));
   }
   return counts;
@@ -56,7 +57,7 @@ export default function BillActions(p: Props) {
     payments: (p.paymentMethod || "cash").toLowerCase().split(/[^a-z]+/)
       .filter((t, i, a) => ["cash", "card", "upi", "other"].includes(t) && a.indexOf(t) === i),
     note: p.note || "",
-    // customer came back for a cap/keychain after billing? edit it in, so
+    // customer came back for a cap/keychain/bag after billing? edit it in, so
     // there's a record and it prints on the bill
     freebies: parseFreebieCounts(p.freebie),
     soldBy: p.soldBy || "",
