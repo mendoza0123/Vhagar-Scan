@@ -82,11 +82,15 @@ if (/\.xlsx$/i.test(file)) {
   console.log(file);
 }
 
+// Any header a register might hold the style code under. The 180 GSM sheet
+// calls it SKU CODE where the others say STYLE NO / DESIGN NO.
+const CODE_COL = /^(STYLENO|DESIGNNO|STYLECODE|SKUCODE|CODE)$/;
+
 // --- header row: found by the columns we need, not by position
 let head = -1;
 for (let i = 0; i < Math.min(rows.length, 30); i++) {
   const ks = (rows[i] || []).map(key);
-  if (ks.includes("STOCK") && ks.some((k) => /^(STYLENO|DESIGNNO|STYLECODE|CODE)$/.test(k))) { head = i; break; }
+  if (ks.includes("STOCK") && ks.some((k) => CODE_COL.test(k))) { head = i; break; }
 }
 if (head < 0) { console.error("No header row found (needs a STOCK column and a style/design code column)."); process.exit(1); }
 const ks = rows[head].map(key);
@@ -94,7 +98,7 @@ const cStock = ks.indexOf("STOCK");
 
 // every column that could hold the style code — the database decides which
 const candidates = [];
-ks.forEach((k, i) => { if (/^(STYLENO|DESIGNNO|STYLECODE|CODE)$/.test(k)) candidates.push(i); });
+ks.forEach((k, i) => { if (CODE_COL.test(k)) candidates.push(i); });
 
 const sizeCols = [];
 ks.forEach((k, i) => {
@@ -153,9 +157,20 @@ if (noCode) console.log(`${noCode} location rows had no style above them — ski
 if (!wanted.length) { console.error("\nNothing to load — no Display or Rack rows with a quantity."); process.exit(1); }
 
 // --- resolve to real SKUs
-const styles = [...new Set(wanted.map((w) => w.style))];
+let styles = [...new Set(wanted.map((w) => w.style))];
+// 33 IMS style codes carry a trailing underscore and a register sometimes drops
+// it. Matching code + "_" exactly is a spelling, not a guess at which style was
+// meant — but it still gets reported, because the register is the thing that's
+// wrong. Anything less exact than that stays NOT IN IMS and is never corrected.
 const known = await sql`SELECT variant_sku, style_code, size FROM variants
-  WHERE style_code = ANY(${styles}::text[])`;
+  WHERE style_code = ANY(${[...styles, ...styles.map((s) => s + "_")]}::text[])`;
+const inIms = new Set(known.map((v) => v.style_code));
+const respelt = styles.filter((s) => !inIms.has(s) && inIms.has(s + "_"));
+if (respelt.length) {
+  console.log(`\nTRAILING UNDERSCORE restored (${respelt.length}): ${respelt.map((s) => `${s} -> ${s}_`).join(", ")}`);
+  for (const w of wanted) if (respelt.includes(w.style)) w.style += "_";
+  styles = [...new Set(wanted.map((w) => w.style))];
+}
 const skuOf = new Map(known.map((v) => [v.style_code + "|" + v.size, v.variant_sku]));
 
 const items = [], missing = [];
