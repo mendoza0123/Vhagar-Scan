@@ -172,10 +172,8 @@ export default async function BillPage({ params }: { params: { id: string } }) {
               `${bill} .nowrap{white-space:nowrap}`,
               // the contact column was breaking "+91-88303 97228" over three lines
               `${bill} .keep span{white-space:nowrap}`,
-              // Keep rows and footer blocks whole. For the browser this is the
-              // normal print behaviour; for html2pdf its 'css' pagebreak mode
-              // reads these same declarations off the live DOM, which is the only
-              // way to stop it slicing a row in half as it cuts the canvas.
+              // Keep rows and footer blocks whole when the browser prints.
+              // Download PDF does its own paging (pdf-pages.ts) and ignores these.
               `${bill} tr{page-break-inside:avoid;break-inside:avoid}`,
               `${bill} .keep{page-break-inside:avoid;break-inside:avoid}`,
             ].join("");

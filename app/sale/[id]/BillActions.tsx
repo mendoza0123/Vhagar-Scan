@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { normalizePhone } from "@/lib/phone";
 import { staffName } from "@/lib/staff";
 import { useStaffList } from "@/lib/use-staff-list";
+import { measureBill, layoutPages, type BillLayout } from "./pdf-pages";
 
 const FREEBIE_NAMES = ["Cap", "Key Chain", "Bag"] as const;
 // same staff list as the sell screen (IMS -> Admin -> POS staff)
@@ -86,6 +87,7 @@ export default function BillActions(p: Props) {
     // Always removed again in `finally`, or the screen would stay shrunken.
     el.classList.add("pdf-export");
     document.body.classList.add("pdf-exporting");
+    let layout: BillLayout | null = null;
     try {
       return await html2pdf()
         .set({
@@ -99,17 +101,25 @@ export default function BillActions(p: Props) {
           // centred a mostly-empty canvas and the bill sat off to the left.
           // Letting html2canvas size to the element makes it fill the content
           // box, so the left and right margins actually match.
-          html2canvas: { scale: 2, useCORS: true, windowWidth: 820 },
+          html2canvas: {
+            scale: 2, useCORS: true, windowWidth: 820,
+            // measure where the bill may be cut, on the very copy being captured
+            onclone: (doc: Document) => { layout = measureBill(doc); },
+          },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-          // html2pdf paginates by SLICING the rendered canvas, which is what cut
-          // a row in half mid-page. Keep rows and the footer blocks whole; the
-          // bill may run to 2 pages and that is fine — tidy beats cramped.
-          // NOT 'avoid-all' — that treats the whole <table> as one unbreakable
-          // block and dumps a page-tall blank gap before it. 'css' mode reads the
-          // break-inside:avoid that .pdf-export puts on tr/.keep (see page.tsx).
-          pagebreak: { mode: ["css", "legacy"], avoid: [".keep"] },
+          // html2pdf's own page breaks are OFF. It pads blank space inside the
+          // bill's border to push a box to the next page, which left the border
+          // open-ended across the cut. layoutPages() does the paging instead:
+          // shrink-to-fit when the bill is a little over, clean cuts and a
+          // closed border on every page when it is long (see pdf-pages.ts).
+          pagebreak: { mode: [] },
         })
         .from(el)
+        .toCanvas()
+        .then(function (this: any) {
+          this.prop.canvas = layoutPages(this.prop.canvas, layout, this.prop.pageSize.inner.ratio);
+        })
+        .toPdf()
         .outputPdf("blob");
     } finally {
       el.classList.remove("pdf-export");
