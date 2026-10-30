@@ -29,3 +29,14 @@ export function billDateTime(iso: string): string {
     minute: "2-digit",
   });
 }
+
+/**
+ * `?date=today | yesterday | YYYY-MM-DD` → one India-local day for SQL, as
+ * `COALESCE(exact::date, today_in_india - back)`. null means "no day filter".
+ */
+export function dayFilter(date: string | null): { exact: string | null; back: number } | null {
+  if (date === "today") return { exact: null, back: 0 };
+  if (date === "yesterday") return { exact: null, back: 1 };
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) return { exact: date, back: 0 };
+  return null;
+}

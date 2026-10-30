@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
-import { billNo } from "@/lib/format";
+import { billNo, dayFilter } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone";
 import { OFFER_SET } from "@/lib/offers";
 
@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/sales?date=today&q=lio — bills, newest first (India local day).
+// GET /api/sales?date=today|yesterday|YYYY-MM-DD&q=lio — bills, newest first (India local day).
 // A search (`q`) matches the bill no, customer, phone, staff, or any item
 // name/SKU/size on the bill — and deliberately searches ALL bills, ignoring the
 // today filter, since "was LIO LINEN 03 ever sold?" is the question being asked.
@@ -232,8 +232,8 @@ export async function GET(req: NextRequest) {
 
   // Voided bills are hidden from the POS log entirely (kept in IMS Void History
   // for the record). Test bills never appear here either.
-  const todayOnly = date === "today";
-  const rows = todayOnly
+  const day = dayFilter(date); // today / yesterday / a picked date; none = latest 200
+  const rows = day
     ? await sql`
         SELECT s.id, s.bill_no, s.subtotal::float8 AS subtotal,
                s.discount::float8 AS discount, s.total::float8 AS total,
@@ -241,7 +241,7 @@ export async function GET(req: NextRequest) {
                (SELECT count(*)::int FROM sale_items si WHERE si.sale_id = s.id) AS item_count
         FROM sales s
         WHERE (s.created_at AT TIME ZONE 'Asia/Kolkata')::date
-              = (now() AT TIME ZONE 'Asia/Kolkata')::date
+              = COALESCE(${day.exact}::date, (now() AT TIME ZONE 'Asia/Kolkata')::date - ${day.back}::int)
           AND NOT s.is_test AND s.status = 'completed'
         ORDER BY s.id DESC`
     : await sql`

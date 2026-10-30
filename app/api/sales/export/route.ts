@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
-import { billNo } from "@/lib/format";
+import { billNo, dayFilter } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -11,13 +11,13 @@ function csv(v: unknown): string {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
-// GET /api/sales/export?date=today  → CSV of every sale line item joined to its bill.
+// GET /api/sales/export?date=today|yesterday|YYYY-MM-DD  → CSV of every sale line item joined to its bill.
 // One row per item; the backup habit for the booth.
 export async function GET(req: NextRequest) {
   noStore();
-  const todayOnly = req.nextUrl.searchParams.get("date") === "today";
+  const day = dayFilter(req.nextUrl.searchParams.get("date"));
 
-  const rows = todayOnly
+  const rows = day
     ? await sql`
         SELECT s.id, s.bill_no, s.created_at, s.sold_by, s.payment_method, s.channel, s.freebie, s.offer,
                s.subtotal::float8 AS subtotal, s.discount::float8 AS discount,
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
                si.line_total::float8 AS line_total
         FROM sales s JOIN sale_items si ON si.sale_id = s.id
         WHERE (s.created_at AT TIME ZONE 'Asia/Kolkata')::date
-              = (now() AT TIME ZONE 'Asia/Kolkata')::date
+              = COALESCE(${day.exact}::date, (now() AT TIME ZONE 'Asia/Kolkata')::date - ${day.back}::int)
           AND NOT s.is_test
         ORDER BY s.id DESC, si.id`
     : await sql`
@@ -75,13 +75,13 @@ export async function GET(req: NextRequest) {
   }
 
   const body = "﻿" + lines.join("\r\n"); // BOM so Excel reads UTF-8
-  const stamp = new Date().toISOString().slice(0, 10);
+  // name the file after the day it holds (India time), or "all" + today's date
+  const istDay = (back: number) => new Date(Date.now() + 330 * 60_000 - back * 86_400_000).toISOString().slice(0, 10);
+  const name = day ? day.exact ?? istDay(day.back) : `all-${istDay(0)}`;
   return new Response(body, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="vhagar-sales-${
-        todayOnly ? "today-" : ""
-      }${stamp}.csv"`,
+      "Content-Disposition": `attachment; filename="vhagar-sales-${name}.csv"`,
     },
   });
 }

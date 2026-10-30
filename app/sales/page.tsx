@@ -21,8 +21,14 @@ type SaleRow = {
 
 const REFRESH_MS = 8000;
 
+// "today" | "yesterday" | "all" | a picked day as YYYY-MM-DD
+type Day = string;
+const isPicked = (d: Day) => /^d{4}-d{2}-d{2}$/.test(d);
+const pretty = (d: Day) =>
+  new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+
 export default function SalesPage() {
-  const [scope, setScope] = useState<"today" | "all">("today");
+  const [scope, setScope] = useState<Day>("today");
   const [data, setData] = useState<{
     sales: SaleRow[]; grandTotal: number; count: number; voidCount?: number; voidValue?: number;
   }>({ sales: [], grandTotal: 0, count: 0 });
@@ -31,12 +37,12 @@ export default function SalesPage() {
   const [q, setQ] = useState("");
   const [term, setTerm] = useState(""); // debounced — what's actually queried
 
-  // a search looks across ALL bills; the Today/All toggle only applies when idle
-  const load = async (s: "today" | "all", search = "") => {
+  // a search looks across ALL bills; the day buttons only apply when idle
+  const load = async (s: Day, search = "") => {
     try {
       const url = search.trim().length >= 2
         ? `/api/sales?q=${encodeURIComponent(search.trim())}`
-        : `/api/sales${s === "today" ? "?date=today" : ""}`;
+        : `/api/sales${s === "all" ? "" : `?date=${s}`}`;
       const res = await fetch(url, {
         cache: "no-store",
       });
@@ -70,7 +76,10 @@ export default function SalesPage() {
     [data.sales]
   );
 
-  const exportHref = `/api/sales/export${scope === "today" ? "?date=today" : ""}`;
+  const exportHref = `/api/sales/export${scope === "all" ? "" : `?date=${scope}`}`;
+  const label = isPicked(scope) ? pretty(scope) : scope; // "today" / "yesterday" / "all" / "28 Oct 2026"
+  // the phone's own date — the booth's — as YYYY-MM-DD, so the picker can't go past today
+  const todayISO = new Date().toLocaleDateString("en-CA");
 
   return (
     <main className="flex min-h-screen flex-col gap-4 p-4">
@@ -108,21 +117,37 @@ export default function SalesPage() {
         </p>
       )}
 
-      {/* scope toggle (searching overrides it) */}
-      <div className={`flex gap-2 ${term.length >= 2 ? "pointer-events-none opacity-40" : ""}`}>
-        {(["today", "all"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setScope(s)}
-            className={`flex-1 rounded-xl border px-4 py-2 text-sm font-medium ${
-              scope === s
-                ? "border-brand bg-brand text-white"
-                : "border-slate-200 bg-white text-slate-600"
-            }`}
-          >
-            {s === "today" ? "Today" : "All"}
-          </button>
-        ))}
+      {/* which day (searching overrides it) */}
+      <div className={`flex flex-col gap-2 ${term.length >= 2 ? "pointer-events-none opacity-40" : ""}`}>
+        <div className="grid grid-cols-3 gap-2">
+          {(["today", "yesterday", "all"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setScope(s)}
+              className={`rounded-xl border px-3 py-2 text-sm font-medium ${
+                scope === s
+                  ? "border-brand bg-brand text-white"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+            >
+              {s === "today" ? "Today" : s === "yesterday" ? "Yesterday" : "All"}
+            </button>
+          ))}
+        </div>
+        <label
+          className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm ${
+            isPicked(scope) ? "border-brand bg-brand/5" : "border-slate-200 bg-white"
+          }`}
+        >
+          <span className="text-slate-500">📅 Any day</span>
+          <input
+            type="date"
+            max={todayISO}
+            value={isPicked(scope) ? scope : ""}
+            onChange={(e) => setScope(e.target.value || "today")}
+            className="flex-1 bg-transparent py-1 text-right outline-none"
+          />
+        </label>
       </div>
 
       {/* grand total card */}
@@ -130,7 +155,8 @@ export default function SalesPage() {
         <div className="flex items-end justify-between">
           <div>
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              {scope === "today" ? "Today's takings" : "All takings"}
+              {scope === "today" ? "Today's takings" : scope === "yesterday" ? "Yesterday's takings"
+                : scope === "all" ? "All takings" : `Takings · ${label}`}
             </p>
             <p className="text-3xl font-bold text-brand">{money(data.grandTotal)}</p>
           </div>
@@ -154,7 +180,7 @@ export default function SalesPage() {
           className="btn btn-ghost mt-3 w-full"
           // let the browser download the CSV
         >
-          ⬇ Export CSV ({scope})
+          ⬇ Export CSV ({label})
         </a>
       </div>
 
@@ -163,7 +189,8 @@ export default function SalesPage() {
         <p className="py-10 text-center text-sm text-slate-400">Loading…</p>
       ) : data.sales.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400">
-          No sales {scope === "today" ? "yet today" : "recorded"}.
+          {scope === "today" ? "No sales yet today." : scope === "yesterday" ? "No sales yesterday."
+            : scope === "all" ? "No sales recorded." : `No sales on ${label}.`}
         </p>
       ) : (
         <ul className="flex flex-col gap-2">

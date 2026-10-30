@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { staffName } from "@/lib/staff";
+import { oneWordColour } from "@/lib/short-colour";
 
 const Scanner = dynamic(() => import("../sell/Scanner"), { ssr: false });
 
 type Line = { sku: string; name: string; size: string; qty: number };
+type DesignHit = { style_code: string; name: string; color: string | null; qty_on_hand: number };
+type SizeHit = { variant_sku: string; name: string; size: string; qty_on_hand: number };
 
 // Short beep + buzz so staff get feedback without looking at the screen.
 // (Same contract as the sell screen.)
@@ -57,11 +60,72 @@ export default function RackPage() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const REARM_GAP_MS = 800; // tag must leave the frame this long to count again
 
+  // Pick by hand, for a tag that won't scan or when typing is quicker: search,
+  // then a design (one name like "HS POLO" covers 16 designs), then its size.
+  const [pq, setPq] = useState("");
+  const [designs, setDesigns] = useState<DesignHit[] | null>(null); // null = nothing searched
+  const [design, setDesign] = useState("");
+  const [sizes, setSizes] = useState<SizeHit[]>([]);
+  const [pick, setPick] = useState("");
+
   const showToast = useCallback((msg: string, tone: "ok" | "warn" = "ok") => {
     setToast({ msg, tone });
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2000);
   }, []);
+
+  const addLine = useCallback((v: { variant_sku: string; name: string; size: string }) => {
+    setLines((prev) => {
+      const i = prev.findIndex((l) => l.sku === v.variant_sku);
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = { ...next[i], qty: next[i].qty + 1 };
+        return next;
+      }
+      return [...prev, { sku: v.variant_sku, name: v.name, size: v.size, qty: 1 }];
+    });
+    setDone(null);
+  }, []);
+
+  useEffect(() => {
+    setDesign("");
+    const q = pq.trim();
+    if (q.length < 2) { setDesigns(null); return; }
+    let live = true;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/variants?by=style&q=${encodeURIComponent(q)}`);
+        const d: DesignHit[] = res.ok ? await res.json() : [];
+        if (!live) return;
+        setDesigns(d);
+        if (d.length === 1) setDesign(d[0].style_code); // "AR-301" names one design
+      } catch {
+        if (live) setDesigns([]);
+      }
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [pq]);
+
+  useEffect(() => {
+    setSizes([]);
+    setPick("");
+    if (!design) return;
+    let live = true;
+    fetch(`/api/variants?style=${encodeURIComponent(design)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: SizeHit[]) => { if (live) setSizes(d); })
+      .catch(() => { if (live) showToast("No signal — pick the design again", "warn"); });
+    return () => { live = false; };
+  }, [design, showToast]);
+
+  const addPicked = () => {
+    const v = sizes.find((x) => x.variant_sku === pick);
+    if (!v) return;
+    addLine(v);
+    feedback(true);
+    showToast(`${v.name} · ${v.size}`);
+    setPick(""); // keep the design: its next size is one tap away
+  };
 
   const addSku = useCallback(
     async (raw: string) => {
@@ -81,16 +145,7 @@ export default function RackPage() {
         }
         if (!res.ok) throw new Error("lookup failed");
         const v = await res.json();
-        setLines((prev) => {
-          const i = prev.findIndex((l) => l.sku === v.variant_sku);
-          if (i >= 0) {
-            const next = [...prev];
-            next[i] = { ...next[i], qty: next[i].qty + 1 };
-            return next;
-          }
-          return [...prev, { sku: v.variant_sku, name: v.name, size: v.size, qty: 1 }];
-        });
-        setDone(null);
+        addLine(v);
         feedback(true);
         showToast(`${v.name} · ${v.size}`);
       } catch {
@@ -98,7 +153,7 @@ export default function RackPage() {
         showToast("Network error — not counted, scan again", "warn");
       }
     },
-    [showToast]
+    [showToast, addLine]
   );
 
   // One add per tag presentation; ignore the ~10/sec re-reads while it's held up.
@@ -206,6 +261,54 @@ export default function RackPage() {
         )}
       </section>
 
+      {/* pick by hand — no camera needed */}
+      <section className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Or pick by hand</p>
+        <input
+          value={pq}
+          onChange={(e) => setPq(e.target.value)}
+          placeholder="Type a product or code — lio linen, AR-301…"
+          className="rounded-xl border border-slate-300 px-4 py-2.5 text-base outline-none focus:border-brand"
+        />
+        {designs !== null &&
+          (designs.length === 0 ? (
+            <p className="px-1 text-xs text-slate-400">Nothing matches “{pq.trim()}”.</p>
+          ) : (
+            <select
+              value={design}
+              onChange={(e) => setDesign(e.target.value)}
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base outline-none focus:border-brand"
+            >
+              <option value="">Pick the design ({designs.length} found)…</option>
+              {designs.map((d) => (
+                <option key={d.style_code} value={d.style_code}>
+                  {d.name} · {d.style_code}{d.color ? ` · ${oneWordColour(d.color)}` : ""} ({d.qty_on_hand} pcs)
+                </option>
+              ))}
+            </select>
+          ))}
+        {design && (
+          <div className="flex gap-2">
+            <select
+              value={pick}
+              onChange={(e) => setPick(e.target.value)}
+              disabled={sizes.length === 0}
+              className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base outline-none focus:border-brand disabled:opacity-50"
+            >
+              <option value="">{sizes.length ? "Pick the size…" : "Loading sizes…"}</option>
+              {sizes.map((x) => (
+                <option key={x.variant_sku} value={x.variant_sku}>
+                  {x.size} · {x.qty_on_hand} in stock
+                </option>
+              ))}
+            </select>
+            <button onClick={addPicked} disabled={!pick} className="btn btn-primary shrink-0 px-5 disabled:opacity-40">
+              ＋ Add
+            </button>
+          </div>
+        )}
+      </section>
+
       {done && done.kind === "rack" && (
         <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
           ✅ Moved <b>{done.r.moved}</b> piece{done.r.moved === 1 ? "" : "s"} to the {done.to === "display" ? "display" : "rack"}
@@ -244,7 +347,7 @@ export default function RackPage() {
         </h2>
         {lines.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
-            Scan a garment tag to start.
+            Scan a tag, or pick a piece by hand above.
           </p>
         ) : (
           lines.map((l) => (
