@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { money } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone";
 import { OFFER_SET, tierPct, CLOCK_OFF, priceBill } from "@/lib/offers";
+import { BASE_STAFF, hasLeft } from "@/lib/staff";
 
 // Scanner is client-only (camera). ssr:false keeps html5-qrcode off the server.
 const Scanner = dynamic(() => import("./Scanner"), { ssr: false });
@@ -78,9 +79,7 @@ const NO_FREEBIES: Record<string, number> = { Cap: 0, "Key Chain": 0, Bag: 0 };
 
 // "Sold by" is WHO CLOSED THE SALE — deliberately separate from the gate login
 // (that's who unlocked the device; the two aren't always the same person).
-// These are the standing names; /api/staff adds every name already billed, so
-// anything entered via "Others…" joins the list for good.
-const BASE_STAFF = ["Aditya", "Naushi", "Angel"];
+// The names come from lib/staff.ts.
 const OTHER = "__other__";
 
 // ---- per-line blocking reason (null = ok to bill) ----
@@ -220,7 +219,7 @@ export default function SellPage() {
       }
 
       const s = localStorage.getItem(SOLDBY_KEY);
-      if (s) setSoldBy(s);
+      if (s && !hasLeft(s)) setSoldBy(s); // a phone that remembers someone who left starts blank
     } catch {
       /* ignore corrupt storage */
     }

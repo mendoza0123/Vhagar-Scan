@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { normalizePhone } from "@/lib/phone";
-import { staffName } from "@/lib/staff";
+import { staffName, BASE_STAFF } from "@/lib/staff";
 
 const FREEBIE_NAMES = ["Cap", "Key Chain", "Bag"] as const;
-// same standing staff list + self-growing /api/staff union as the sell screen
-const BASE_STAFF = ["Aditya", "Naushi", "Angel"];
+// same staff list (lib/staff.ts) + self-growing /api/staff union as the sell screen
 const OTHER = "__other__";
 
 // "Cap x2 + Key Chain x1" (or legacy "Cap" / "Kitchen") → counts per freebie.

@@ -20,3 +20,10 @@ export function switchStaff() {
   sessionStorage.removeItem(PIN_KEY);
   location.reload();
 }
+
+// The "Sold by" dropdown: these standing names, plus every name already billed
+// (/api/staff), so one typed into "Others…" joins the list for good — except
+// people who have left, kept off the list (their old bills keep their names).
+export const BASE_STAFF = ["Aditya", "Naushi", "Krupa", "Pankaj", "Deepika"];
+const LEFT = ["angel", "bindu", "sania", "saniya"];
+export const hasLeft = (name: string) => LEFT.includes(name.trim().toLowerCase());

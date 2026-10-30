@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { sql } from "@/lib/db";
+import { hasLeft } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 // No staff table: the list IS the set of names already used on sales. So a name
 // typed into "Others…" joins the dropdown the moment it's billed, on every
 // device, with nothing to maintain. The client unions this with its base names.
+// People who have left (lib/staff.ts) are dropped; their old bills keep the name.
 export async function GET() {
   noStore();
   const rows = await sql`
@@ -16,5 +18,5 @@ export async function GET() {
     FROM sales
     WHERE sold_by IS NOT NULL AND btrim(sold_by) <> ''
     ORDER BY 1`;
-  return NextResponse.json({ names: rows.map((r: any) => r.name) });
+  return NextResponse.json({ names: rows.map((r: any) => r.name).filter((n: string) => !hasLeft(n)) });
 }
