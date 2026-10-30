@@ -8,7 +8,7 @@ import { oneWordColour } from "@/lib/short-colour";
 
 const Scanner = dynamic(() => import("../sell/Scanner"), { ssr: false });
 
-type Line = { sku: string; name: string; size: string; qty: number };
+type Line = { sku: string; name: string; size: string; qty: number; stock: number };
 type DesignHit = { style_code: string; name: string; color: string | null; qty_on_hand: number };
 type SizeHit = { variant_sku: string; name: string; size: string; qty_on_hand: number };
 
@@ -74,17 +74,29 @@ export default function RackPage() {
     toastTimer.current = setTimeout(() => setToast(null), 2000);
   }, []);
 
-  const addLine = useCallback((v: { variant_sku: string; name: string; size: string }) => {
+  // Never more of a size on the list than we own: 1 in stock moves 1. Read
+  // through a ref so the async scan handler sees the list as it is now.
+  const linesRef = useRef<Line[]>([]);
+  linesRef.current = lines;
+  const onList = (sku: string) => lines.find((l) => l.sku === sku)?.qty ?? 0;
+  const noMore = (v: { qty_on_hand: number }) =>
+    v.qty_on_hand <= 0 ? "None in stock" : `Only ${v.qty_on_hand} in stock — all on the list`;
+
+  // false = refused, the size is already at its stock
+  const addLine = useCallback((v: { variant_sku: string; name: string; size: string; qty_on_hand: number }) => {
+    const have = linesRef.current.find((l) => l.sku === v.variant_sku)?.qty ?? 0;
+    if (have >= v.qty_on_hand) return false;
     setLines((prev) => {
       const i = prev.findIndex((l) => l.sku === v.variant_sku);
       if (i >= 0) {
         const next = [...prev];
-        next[i] = { ...next[i], qty: next[i].qty + 1 };
+        next[i] = { ...next[i], qty: next[i].qty + 1, stock: v.qty_on_hand };
         return next;
       }
-      return [...prev, { sku: v.variant_sku, name: v.name, size: v.size, qty: 1 }];
+      return [...prev, { sku: v.variant_sku, name: v.name, size: v.size, qty: 1, stock: v.qty_on_hand }];
     });
     setDone(null);
+    return true;
   }, []);
 
   useEffect(() => {
@@ -121,7 +133,11 @@ export default function RackPage() {
   const addPicked = () => {
     const v = sizes.find((x) => x.variant_sku === pick);
     if (!v) return;
-    addLine(v);
+    if (!addLine(v)) {
+      feedback(false);
+      showToast(`${v.size}: ${noMore(v)}`, "warn");
+      return;
+    }
     feedback(true);
     showToast(`${v.name} · ${v.size}`);
     setPick(""); // keep the design: its next size is one tap away
@@ -145,7 +161,11 @@ export default function RackPage() {
         }
         if (!res.ok) throw new Error("lookup failed");
         const v = await res.json();
-        addLine(v);
+        if (!addLine(v)) {
+          feedback(false);
+          showToast(`${v.name} · ${v.size}: ${noMore(v)}`, "warn");
+          return;
+        }
         feedback(true);
         showToast(`${v.name} · ${v.size}`);
       } catch {
@@ -178,7 +198,9 @@ export default function RackPage() {
 
   const bump = (sku: string, d: number) =>
     setLines((prev) =>
-      prev.flatMap((l) => (l.sku === sku ? (l.qty + d <= 0 ? [] : [{ ...l, qty: l.qty + d }]) : [l]))
+      prev.flatMap((l) =>
+        l.sku !== sku ? [l] : l.qty + d <= 0 ? [] : [{ ...l, qty: Math.min(l.qty + d, l.stock) }]
+      )
     );
 
   const total = lines.reduce((n, l) => n + l.qty, 0);
@@ -297,8 +319,9 @@ export default function RackPage() {
             >
               <option value="">{sizes.length ? "Pick the size…" : "Loading sizes…"}</option>
               {sizes.map((x) => (
-                <option key={x.variant_sku} value={x.variant_sku}>
+                <option key={x.variant_sku} value={x.variant_sku} disabled={onList(x.variant_sku) >= x.qty_on_hand}>
                   {x.size} · {x.qty_on_hand} in stock
+                  {onList(x.variant_sku) > 0 ? ` · ${onList(x.variant_sku)} on list` : ""}
                 </option>
               ))}
             </select>
@@ -354,11 +377,13 @@ export default function RackPage() {
             <div key={l.sku} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-semibold">{l.name}</span>
-                <span className="text-xs text-slate-400">{l.size} · {l.sku}</span>
+                <span className="text-xs text-slate-400">
+                  {l.size} · {l.sku} · {l.qty >= l.stock ? <b className="text-amber-700">all {l.stock} in stock</b> : `${l.stock} in stock`}
+                </span>
               </span>
               <button onClick={() => bump(l.sku, -1)} className="h-10 w-10 rounded-xl border border-slate-300 text-xl font-bold active:bg-slate-100">−</button>
               <span className="w-8 text-center text-lg font-semibold tabular-nums">{l.qty}</span>
-              <button onClick={() => bump(l.sku, 1)} className="h-10 w-10 rounded-xl border border-slate-300 text-xl font-bold active:bg-slate-100">+</button>
+              <button onClick={() => bump(l.sku, 1)} disabled={l.qty >= l.stock} aria-label="One more" className="h-10 w-10 rounded-xl border border-slate-300 text-xl font-bold active:bg-slate-100 disabled:opacity-30">+</button>
             </div>
           ))
         )}
