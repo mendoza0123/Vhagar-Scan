@@ -6,7 +6,8 @@ import dynamic from "next/dynamic";
 import { money } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone";
 import { OFFER_SET, tierPct, CLOCK_OFF, priceBill } from "@/lib/offers";
-import { BASE_STAFF, hasLeft } from "@/lib/staff";
+import { hasLeft } from "@/lib/staff";
+import { useStaffList } from "@/lib/use-staff-list";
 
 // Scanner is client-only (camera). ssr:false keeps html5-qrcode off the server.
 const Scanner = dynamic(() => import("./Scanner"), { ssr: false });
@@ -134,7 +135,7 @@ export default function SellPage() {
   const discountRef = useRef("0");
   const [discount, setDiscount] = useState<string>("0");
   const [soldBy, setSoldBy] = useState<string>("");
-  const [staffList, setStaffList] = useState<string[]>(BASE_STAFF);
+  const staffList = useStaffList(); // managed in IMS -> Admin -> POS staff
   const [isOther, setIsOther] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -263,19 +264,6 @@ export default function SellPage() {
   useEffect(() => {
     if (hydrated) localStorage.setItem(SOLDBY_KEY, soldBy);
   }, [soldBy, hydrated]);
-
-  // Names already billed join the dropdown. Falls back to BASE_STAFF on a dead
-  // hotspot, so the picker always works.
-  useEffect(() => {
-    let live = true;
-    fetch("/api/staff")
-      .then((r) => (r.ok ? r.json() : { names: [] }))
-      .then((d) => {
-        if (live) setStaffList([...new Set([...BASE_STAFF, ...(d.names || [])])].sort());
-      })
-      .catch(() => {});
-    return () => { live = false; };
-  }, []);
 
   const showToast = useCallback((msg: string, tone: "ok" | "warn" = "ok") => {
     setToast({ msg, tone });
@@ -567,10 +555,6 @@ export default function SellPage() {
         total,
       });
       feedback(true);
-      // a name entered via "Others…" is now a real billed name — list it here
-      // too, so it shows without waiting for a reload/refetch
-      const sb = soldBy.trim();
-      if (sb && !staffList.includes(sb)) setStaffList((prev) => [...new Set([...prev, sb])].sort());
       setIsOther(false);
       clearCart();
       setName("");

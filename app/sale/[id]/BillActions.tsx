@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { normalizePhone } from "@/lib/phone";
-import { staffName, BASE_STAFF } from "@/lib/staff";
+import { staffName } from "@/lib/staff";
+import { useStaffList } from "@/lib/use-staff-list";
 
 const FREEBIE_NAMES = ["Cap", "Key Chain", "Bag"] as const;
-// same staff list (lib/staff.ts) + self-growing /api/staff union as the sell screen
+// same staff list as the sell screen (IMS -> Admin -> POS staff)
 const OTHER = "__other__";
 
 // "Cap x2 + Key Chain x1" (or legacy "Cap" / "Kitchen") → counts per freebie.
@@ -64,17 +65,8 @@ export default function BillActions(p: Props) {
   const editPhoneOk = normalizePhone(f.phone) !== null;
   const bumpFreebie = (n: string, d: number) =>
     setF((cur) => ({ ...cur, freebies: { ...cur.freebies, [n]: Math.max(0, (cur.freebies[n] || 0) + d) } }));
-  const [staffList, setStaffList] = useState<string[]>(BASE_STAFF);
+  const staffList = useStaffList();
   const [soldByOther, setSoldByOther] = useState(false);
-  useEffect(() => {
-    if (!editing) return;
-    let live = true;
-    fetch("/api/staff")
-      .then((r) => (r.ok ? r.json() : { names: [] }))
-      .then((d) => { if (live) setStaffList([...new Set([...BASE_STAFF, ...(d.names || [])])].sort()); })
-      .catch(() => {});
-    return () => { live = false; };
-  }, [editing]);
   // one payment method per bill — picking one replaces the rest
   const togglePayment = (pm: string) => setF((cur) => ({ ...cur, payments: [pm] }));
 
