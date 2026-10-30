@@ -331,7 +331,7 @@ export default function BillActions(p: Props) {
                   );
                 })}
               </div>
-              <p className="text-xs text-slate-400">Freebies print on the bill as FREE lines.</p>
+              <p className="text-xs text-slate-400">Cap and Key Chain print on the bill as FREE lines; bags are only recorded.</p>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button onClick={() => setEditing(false)} className="btn btn-ghost">Cancel</button>

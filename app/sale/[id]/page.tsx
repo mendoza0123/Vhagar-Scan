@@ -15,11 +15,10 @@ const FREEBIE_META: Record<string, { label: string; img: string; mrp: number }> 
   "key chain": KEY_CHAIN,
   keychain: KEY_CHAIN,
   kitchen: KEY_CHAIN, // bills written before the rename stored this as "Kitchen"
-  // ponytail: no "bag" entry until there is a bag photo + value. The fallback
-  // below already prints "Exclusive Vhagar Bag" with the 🎁 tile — pointing img
-  // at a missing PNG would show a broken image on a fully loaded bill instead,
-  // because the 404 lands before hydration can swap in the tile.
 };
+// Recorded on the sale (sales.freebie) and counted in the IMS dashboard, but
+// never printed on the customer's bill — owner call, 30 Oct 2026.
+const NOT_ON_BILL = new Set(["bag"]);
 function parseFreebies(freebie: string | null) {
   return (freebie || "")
     .split("+")
@@ -30,9 +29,11 @@ function parseFreebies(freebie: string | null) {
       const m = raw.match(/^(.*?)\s*x\s*(\d+)$/i);
       const name = (m ? m[1] : raw).trim();
       const qty = m ? Math.max(1, parseInt(m[2], 10)) : 1;
+      if (NOT_ON_BILL.has(name.toLowerCase())) return null;
       const meta = FREEBIE_META[name.toLowerCase()] ?? { label: `Exclusive Vhagar ${name}`, img: "", mrp: 0 };
       return { ...meta, qty };
-    });
+    })
+    .filter((f) => f !== null);
 }
 
 // The sell screen stores each applied offer as "Label …: ₹<amount>", joined with
