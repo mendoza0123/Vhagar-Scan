@@ -124,7 +124,7 @@ function feedback(ok: boolean) {
 
 export default function SellPage() {
   const [scanning, setScanning] = useState(false);
-  // Buy 2/3/4 = 10/20/30% off applies AUTOMATICALLY — tierDismissed is the staff
+  // Buy 2/3/4 = 20/25/30% off applies AUTOMATICALLY — tierDismissed is the staff
   // escape hatch.
   const [tierDismissed, setTierDismissed] = useState(false);
   const [clockWon, setClockWon] = useState(false); // 10-sec clock game: ₹100 off
@@ -441,7 +441,7 @@ export default function SellPage() {
   const pieces = useMemo(() => cart.reduce((n, l) => n + l.qty, 0), [cart]);
 
   // ---- offers + final bill (rules in lib/offers.ts) ----
-  // Buy 2/3/4 = 10/20/30% off the whole bill — every piece counts.
+  // Buy 2/3/4 = 20/25/30% off the whole bill — every piece counts.
   const { pct, tierAmt, offTier, offClock, offerDiscount, discountNum, total } =
     priceBill({ subtotal, pieces, discount, tierDismissed, clockWon });
   const tierLabel = `Buy ${Math.min(pieces, 4)}${pieces > 4 ? "+" : ""} get ${pct}% off`;
@@ -852,7 +852,7 @@ export default function SellPage() {
           <p className="text-xs text-slate-400">Nothing is added for free automatically — tap + for each gift.</p>
 
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Offers</p>
-          {/* Buy 2/3/4 = 10/20/30% off — every piece counts, shirt or t-shirt */}
+          {/* Buy 2/3/4 = 20/25/30% off — every piece counts, shirt or t-shirt */}
           {offTier > 0 ? (
             <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
               <div className="flex items-center justify-between gap-2">
@@ -875,7 +875,7 @@ export default function SellPage() {
             </button>
           ) : (
             <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              🏷 Buy 2 = <b>10%</b> · Buy 3 = <b>20%</b> · Buy 4 = <b>30%</b> off — add 1 more piece to unlock
+              🏷 Buy 2 = <b>{tierPct(2)}%</b> · Buy 3 = <b>{tierPct(3)}%</b> · Buy 4 = <b>{tierPct(4)}%</b> off — add 1 more piece to unlock
             </p>
           )}
 

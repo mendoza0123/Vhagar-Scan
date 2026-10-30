@@ -5,12 +5,13 @@
 // Rides every checkout; /api/sales refuses any other value. The discount is
 // worked out on the phone, so a phone still holding an older sell screen would
 // otherwise bill with that screen's offers.
-export const OFFER_SET = "the-walk";
+// Bump it whenever the offer numbers change.
+export const OFFER_SET = "the-walk-v2";
 
-// Buy 2 = 10% · Buy 3 = 20% · Buy 4 or more = 30% off. Every piece counts,
-// shirt or t-shirt.
+// Buy 2 = 20% · Buy 3 = 25% · Buy 4 or more = 30% off. Every piece counts,
+// shirt or t-shirt. (Was 10/20/30 until 30 Oct 2026 — that was "the-walk".)
 export function tierPct(pieces: number): number {
-  return pieces >= 4 ? 30 : pieces === 3 ? 20 : pieces === 2 ? 10 : 0;
+  return pieces >= 4 ? 30 : pieces === 3 ? 25 : pieces === 2 ? 20 : 0;
 }
 
 // The 10-second clock game: a customer who stops the clock at exactly 10.00 s
