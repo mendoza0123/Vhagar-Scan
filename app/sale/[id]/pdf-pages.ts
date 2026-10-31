@@ -5,7 +5,7 @@
 // INSIDE the bill's border. So a bill just 2% too tall came out with its border
 // running to the foot of page 1, open-ended, and carrying on round a page 2
 // that held nothing but "OWN YOUR FLAME". Instead:
-//   - a bill a little too tall for one page is shrunk onto it (never below 80%)
+//   - a bill too tall for one page is shrunk onto it (no lower limit: MIN_FIT)
 //   - a longer bill is cut only between item rows or between the boxes under
 //     them, the item header repeats on the next page, and the border is closed
 //     round every page.
@@ -27,9 +27,11 @@ export type BillLayout = {
   cuts: Cut[];
 };
 
-// Smallest a bill is shrunk to keep it on one page. 15px type at 80% is still
-// ordinary invoice size; anything longer gets a second page instead.
-export const MIN_FIT = 0.8;
+// Smallest a bill is shrunk to keep it on one page. 0 = no floor: EVERY bill is
+// shrunk onto ONE page however long (10 items ≈ 70%, 19 items ≈ 55%) — booth
+// call, 31 Oct 2026. Set back to 0.8 and long bills get a clean second page
+// again (the paging below is untouched, just not reached at 0).
+export const MIN_FIT = 0;
 
 // Called from html2canvas's onclone, on the exact copy it photographs, so the
 // cut positions match the image (the copy lays out at windowWidth 820, which
