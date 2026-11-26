@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { matchesType, isTshirt, type ProductType } from "@/lib/product-type";
+import { matchesType, type ProductType } from "@/lib/product-type";
+import type { RestickBatch } from "@/lib/restick";
 import { RetailTag, barcodeFor, type TagRow } from "./retail-tag";
 
 type StockRow = {
@@ -97,8 +98,12 @@ export default function LabelsPage() {
   // retail tag: per-variant EAN + registration month, and the rendered barcodes
   const [tagInfo, setTagInfo] = useState<Record<string, { ean13: string | null; mfg: string | null }>>({});
   const [barMap, setBarMap] = useState<Record<string, string>>({});
-  // per-piece unit codes for t-shirt variants (each physical tee = one unique QR)
+  // per-piece unit codes (each physical piece = one unique QR, once it has one)
   const [unitsByVariant, setUnitsByVariant] = useState<Record<string, string[]>>({});
+  // ?batch=<id> — print exactly one QR re-stick batch (Admin → QR Re-stick, or the IMS)
+  const [batch, setBatch] = useState<RestickBatch | null>(null);
+  const [batchErr, setBatchErr] = useState<string | null>(null);
+  const [skip, setSkip] = useState<Set<string>>(new Set()); // codes unticked in the batch
   const [generating, setGenerating] = useState(false);
   const qrCache = useRef<Map<string, string>>(new Map());
   const barCache = useRef<Map<string, string>>(new Map());
@@ -112,6 +117,18 @@ export default function LabelsPage() {
         setLoading(false);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("batch");
+    if (!id) return;
+    fetch(`/api/restick/${encodeURIComponent(id)}`, { cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.message || "That re-stick batch wasn't found.");
+        setBatch(d);
+      })
+      .catch((e) => setBatchErr(e.message || "No signal — couldn't load the batch."));
   }, []);
 
   // Retail-tag extras (EAN + registration month). Fetched once, independently of
@@ -141,18 +158,17 @@ export default function LabelsPage() {
   // Base font scales with the label's shorter side: ~5.5pt on a 25mm tag → ~10pt on a 45mm tag.
   const basePt = Math.max(5, Math.min(16, Math.round(Math.min(labelW, labelH) * 0.22 * 10) / 10));
 
-  // fetch per-piece unit codes for the t-shirt variants in view, so tees print
-  // one unique sticker each (shirts have no units → unchanged copy behaviour).
+  // per-piece unit codes for every size, so a piece that has its own code prints
+  // it (a size with none yet — not re-stuck — prints copies of the size QR).
   useEffect(() => {
-    const teeSkus = Array.from(new Set(rows.filter((r) => isTshirt(r.category)).map((r) => r.variant_sku)));
-    if (teeSkus.length === 0) { setUnitsByVariant({}); return; }
+    if (rows.length === 0) return;
     let cancelled = false;
-    fetch(`/api/units?skus=${encodeURIComponent(teeSkus.join(","))}`)
+    fetch("/api/units?all=1", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { units: {} }))
       .then((d) => { if (!cancelled) setUnitsByVariant(d.units || {}); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [rows]);
+  }, [rows.length]);
 
   const styles = useMemo(() => {
     const m = new Map<string, string>();
@@ -169,6 +185,12 @@ export default function LabelsPage() {
 
   // one entry per sticker to print
   const stickers = useMemo(() => {
+    if (batch) {
+      const bySku = new Map(rows.map((r) => [r.variant_sku, r]));
+      return batch.codes
+        .filter((c) => c.status === "in_stock" && !skip.has(c.code) && bySku.has(c.sku))
+        .map((c) => ({ key: c.code, row: bySku.get(c.sku)!, code: c.code }));
+    }
     const useManual = manual.size > 0;
     const filtered = rows.filter(
       (r) =>
@@ -190,11 +212,11 @@ export default function LabelsPage() {
     const out: { key: string; row: StockRow; code: string }[] = [];
     for (const r of filtered) {
       const units = unitsByVariant[r.variant_sku];
-      if (isTshirt(r.category) && units && units.length) {
-        // t-shirt: one unique sticker per physical piece (QR = unit code)
+      if (units && units.length) {
+        // one unique sticker per physical piece (QR = unit code)
         for (const code of units) out.push({ key: code, row: r, code });
       } else {
-        // shirt (or a tee with no minted units yet): N identical copies of the SKU QR
+        // a size with no codes yet: N identical copies of the SKU QR
         const n = copiesOf(r);
         for (let i = 0; i < n; i++) out.push({ key: `${r.variant_sku}-${i}`, row: r, code: r.variant_sku });
       }
@@ -214,7 +236,7 @@ export default function LabelsPage() {
       return proof;
     }
     return out;
-  }, [rows, styleCode, category, type, qtyMode, customCopies, manual, sizeSel, unitsByVariant, sampleN]);
+  }, [rows, styleCode, category, type, qtyMode, customCopies, manual, sizeSel, unitsByVariant, sampleN, batch, skip]);
 
   // The size filter works when exactly ONE style is selected — either via the
   // Style dropdown, or a single tick in the manual picker.
@@ -386,6 +408,7 @@ export default function LabelsPage() {
     )
       return;
     window.print();
+    if (batch) fetch(`/api/restick/${batch.id}`, { method: "POST" }).catch(() => {});
   };
 
   return (
@@ -491,6 +514,42 @@ export default function LabelsPage() {
           </div>
         )}
 
+        {batchErr && <p className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">{batchErr}</p>}
+        {batch && (
+          <div className="rounded-2xl border border-brand bg-white p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Re-stick batch</p>
+                <p className="font-semibold">{batch.name}</p>
+                <p className="text-xs text-slate-500">
+                  {batch.created_by || "—"}{batch.rack ? ` · Rack ${batch.rack}` : ""}{batch.remark ? ` · “${batch.remark}”` : ""}
+                  {batch.printed_at ? " · printed before" : ""}
+                </p>
+              </div>
+              <a href="/admin/labels" className="text-sm font-medium text-brand">Exit</a>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Untick a sticker to leave it out (e.g. reprint just one).</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {batch.codes.filter((c) => c.status === "in_stock").map((c) => (
+                <label key={c.code} className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-xs ${skip.has(c.code) ? "border-slate-200 text-slate-400" : "border-brand text-slate-800"}`}>
+                  <input
+                    type="checkbox"
+                    checked={!skip.has(c.code)}
+                    onChange={() => setSkip((prev) => { const n = new Set(prev); if (n.has(c.code)) n.delete(c.code); else n.add(c.code); return n; })}
+                  />
+                  {c.code}
+                </label>
+              ))}
+            </div>
+            {batch.codes.some((c) => c.status !== "in_stock") && (
+              <p className="mt-2 text-xs text-slate-500">
+                {batch.codes.filter((c) => c.status !== "in_stock").length} piece(s) of this batch already sold or replaced — not printed.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!batch && (<>
         {/* quantity */}
         <div className="rounded-2xl border border-slate-200 bg-white p-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -683,6 +742,8 @@ export default function LabelsPage() {
           </div>
         </div>
 
+        </>)}
+
         {/* count + print */}
         <div className="flex items-center justify-between gap-2">
           <span className="text-sm text-slate-600">
@@ -721,7 +782,7 @@ export default function LabelsPage() {
               Labels print in a {a4Cols}-column grid; cut along the dashed guides.
             </p>
           )}
-          <p className="mt-1">Colour is printed as a word (thermal is black-and-white). QR encodes the SKU — or a unique per-piece code for t-shirts.</p>
+          <p className="mt-1">Colour is printed as a word (thermal is black-and-white). QR encodes the piece's own code once it has one (re-stuck or newly stocked), else the size's SKU.</p>
         </div>
       </div>
 

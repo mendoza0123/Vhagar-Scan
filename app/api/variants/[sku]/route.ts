@@ -33,5 +33,15 @@ export async function GET(
   // variant_of only rewrites the code when it WAS a per-piece unit, so a
   // changed code is the tell. Hand it back: without it the unique sticker is
   // thrown away here and checkout can't mark that exact tee sold.
-  return NextResponse.json({ ...rows[0], unit_code: sku === scanned ? null : scanned });
+  // An old sticker still sells (never block the booth) but the screen says so:
+  // a voided code, or a size's shared QR once that size has been re-stuck.
+  // Best-effort — before the re-stick migration the tables aren't there.
+  let old_sticker = false;
+  try {
+    const [o] = await sql`
+      SELECT (SELECT status FROM ims_units WHERE unit_code = ${scanned}) AS unit_status,
+             EXISTS (SELECT 1 FROM ims_restick_lines WHERE variant_sku = ${sku}) AS restuck`;
+    old_sticker = o.unit_status === "void" || (sku === scanned && o.restuck === true);
+  } catch { /* not switched on yet */ }
+  return NextResponse.json({ ...rows[0], unit_code: sku === scanned ? null : scanned, old_sticker });
 }

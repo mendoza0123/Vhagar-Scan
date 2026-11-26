@@ -22,8 +22,10 @@ type Variant = {
   needs_price: boolean;
   qty_on_hand: number;
   category: string | null;
-  // set only when the scanned code was a per-piece t-shirt sticker
+  // set only when the scanned code was a per-piece sticker
   unit_code?: string | null;
+  // the sticker was replaced in a QR re-stick (still sells)
+  old_sticker?: boolean;
 };
 
 type Source = "rack" | "carton" | "display";
@@ -329,11 +331,17 @@ export default function SellPage() {
         }
         if (!res.ok) throw new Error("lookup failed");
         const v: Variant = await res.json();
+        // every piece has its own code now: the same sticker twice is one piece
+        if (v.unit_code && cartRef.current.some((l) => l.units?.includes(v.unit_code!))) {
+          feedback(false);
+          showToast("Already scanned — that sticker is in the cart", "warn");
+          return;
+        }
         addVariant(v);
         feedback(true);
         showToast(
-          `Added ${v.name} · ${v.size}${v.qty_on_hand <= 0 ? " (out of stock!)" : ""}`,
-          v.qty_on_hand <= 0 ? "warn" : "ok"
+          `Added ${v.name} · ${v.size}${v.qty_on_hand <= 0 ? " (out of stock!)" : ""}${v.old_sticker ? " — old sticker, this size was re-stuck" : ""}`,
+          v.qty_on_hand <= 0 || v.old_sticker ? "warn" : "ok"
         );
       } catch {
         feedback(false);

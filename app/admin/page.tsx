@@ -116,6 +116,19 @@ export default function AdminPage() {
       </Link>
 
       <Link
+        href="/admin/restick"
+        className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm active:scale-[0.99]"
+      >
+        <span className="text-3xl">🔁</span>
+        <span>
+          <span className="block text-lg font-semibold">QR Re-stick</span>
+          <span className="block text-sm text-slate-500">
+            Count a product, fix its stock, print a new sticker per piece
+          </span>
+        </span>
+      </Link>
+
+      <Link
         href="/admin/cartons"
         className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm active:scale-[0.99]"
       >
