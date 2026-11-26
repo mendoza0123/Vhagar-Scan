@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
-import { findDesigns, styleSizes, recentBatches, progress, parseSave, saveRestick, restickError } from "@/lib/restick";
+import { findDesigns, styleSizes, styleGrid, recentBatches, progress, parseSave, saveRestick, restickError } from "@/lib/restick";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/restick?q=lio      → designs
 // GET /api/restick?style=X    → that design's sizes + its batches
+// GET /api/restick?grid=1     → every design worth re-sticking (the home grid)
 // GET /api/restick            → recent batches (both apps) + progress
 export async function GET(req: NextRequest) {
   noStore();
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
       if (!s) return NextResponse.json({ error: "not_found", message: "No such product." }, { status: 404 });
       return NextResponse.json({ ...s, batches: await recentBatches(style) });
     }
+    if (p.get("grid") === "1") return NextResponse.json({ styles: await styleGrid() });
     const q = (p.get("q") || "").trim();
     if (q) return NextResponse.json({ designs: q.length < 2 ? [] : await findDesigns(q) });
     const [batches, prog] = await Promise.all([recentBatches(), progress()]);

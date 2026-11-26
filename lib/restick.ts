@@ -86,6 +86,19 @@ export async function recentBatches(style?: string) {
     LIMIT 40`) as RestickBatchRow[];
 }
 
+// The home grid: every design worth re-sticking (has stock, or already re-stuck),
+// the same set the progress count uses. The screen groups them into families.
+export type GridStyle = { style_code: string; name: string; image: string | null; qty: number; restuck: boolean };
+export async function styleGrid() {
+  return (await sql`
+    SELECT v.style_code, p.name, p.image_url AS image, SUM(v.qty_on_hand)::int AS qty,
+           EXISTS (SELECT 1 FROM ims_restick r WHERE r.style_code = v.style_code) AS restuck
+    FROM variants v JOIN products p ON p.style_code = v.style_code
+    GROUP BY v.style_code, p.name, p.image_url
+    HAVING SUM(v.qty_on_hand) > 0 OR EXISTS (SELECT 1 FROM ims_restick r WHERE r.style_code = v.style_code)
+    ORDER BY p.name`) as GridStyle[];
+}
+
 // "84 of 323 products re-stuck" — designs with stock, or already re-stuck
 export async function progress() {
   const [row] = await sql`
