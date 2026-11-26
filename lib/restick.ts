@@ -125,8 +125,10 @@ export function parseSave(b: any): SaveInput | string {
     seen: Math.trunc(Number(l?.seen)),
   }));
   if (lines.length === 0) return "Tick at least one size.";
-  if (lines.some((l: any) => !l.sku || !Number.isFinite(l.counted) || l.counted < 0 || !Number.isFinite(l.seen)))
-    return "Every ticked size needs a count of 0 or more.";
+  if (lines.length > 30) return "Too many sizes in one save.";
+  if (new Set(lines.map((l: any) => l.sku)).size !== lines.length) return "A size is listed twice.";
+  if (lines.some((l: any) => !l.sku || !Number.isFinite(l.counted) || l.counted < 0 || l.counted > 999 || !Number.isFinite(l.seen)))
+    return "Every ticked size needs a count from 0 to 999.";
   const remark = String(b?.remark ?? "").trim().slice(0, 200) || null;
   return { id, style, rack, remark, lines };
 }
