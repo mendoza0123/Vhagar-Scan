@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { GridStyle, RestickBatch, RestickBatchRow, RestickSize } from "@/lib/restick";
 
-// QR re-stick: pick a product → type the counted pieces per size → Save (stock
+// QR re-stick: pick a product → count the pieces per size → Save (stock
 // becomes the count, old codes retire, one fresh code per piece) → Print.
+// Each saved re-stick can then be edited, voided (undone) or deleted.
 // The SAME component lives in the POS (components/RestickScreen.tsx) and the
 // IMS (components/restick/restick-screen.tsx); only the class strings in C
 // differ. Change one, copy it to the other.
@@ -30,6 +31,11 @@ const C = {
   rowHover: "hover:bg-slate-50",
   accent: "text-brand",
   sizeBox: "bg-slate-100 text-slate-800",
+  step: "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700 active:bg-slate-100 disabled:opacity-30",
+  count: "h-11 w-14 rounded-xl border border-slate-300 bg-white text-center text-lg font-bold outline-none focus:border-brand",
+  action: "rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700",
+  danger: "rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700",
+  panel: "rounded-xl border border-slate-200 bg-slate-50 p-3",
 };
 
 type Design = { style_code: string; name: string; color: string | null; qty: number; restuck_at: string | null };
@@ -38,6 +44,7 @@ type Family = {
   family: string; qty: number; image: string | null; done: number;
   designs: (GridStyle & { design: string })[];
 };
+type RowMsg = { id: string; tone: "ok" | "err"; text: string; added?: string[]; removed?: string[] };
 
 // "LIO LINEN 17" → family LIO LINEN, design 17 — the same rule as the IMS
 // dashboard's Top sellers cards: the family is the leading words with no digits.
@@ -54,6 +61,40 @@ const newId = () =>
     ? crypto.randomUUID()
     : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (ch) =>
         (Number(ch) ^ (Math.random() * 16) >> (Number(ch) / 4)).toString(16));
+
+// − [ n ] +  — tap + once per piece while counting, or type the number.
+// "" means "not counted" (the size is left alone).
+type Update = (prev: string) => string;
+function Stepper({ value, onChange, label }: { value: string; onChange: (f: Update) => void; label: string }) {
+  const n = value === "" ? null : Number(value);
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <button type="button" aria-label={`One less ${label}`} disabled={n == null || n <= 0}
+              onClick={() => onChange((p) => (p === "" || Number(p) <= 0 ? p : String(Number(p) - 1)))} className={C.step}>−</button>
+      <input
+        value={value}
+        onChange={(e) => { const v = e.target.value.replace(/[^\d]/g, "").slice(0, 3); onChange(() => v); }}
+        inputMode="numeric"
+        placeholder="—"
+        aria-label={`Counted ${label}`}
+        className={C.count}
+      />
+      <button type="button" aria-label={`One more ${label}`}
+              onClick={() => onChange((p) => String(Math.min(999, (p === "" ? 0 : Number(p)) + 1)))} className={C.step}>+</button>
+    </div>
+  );
+}
+
+function DiffBadge({ was, now }: { was: number; now: number | null }) {
+  if (now == null || !Number.isFinite(now)) return null;
+  const d = now - was;
+  if (d === 0) return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">✓ same</span>;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${d > 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+      {d > 0 ? "+" : "−"}{Math.abs(d)}
+    </span>
+  );
+}
 
 export default function RestickScreen({
   source,
@@ -85,6 +126,13 @@ export default function RestickScreen({
   const [grid, setGrid] = useState<GridStyle[]>([]);
   const [family, setFamily] = useState<Family | null>(null);
   const [allRecent, setAllRecent] = useState(false);
+  // editing a saved re-stick
+  const [editing, setEditing] = useState<RestickBatch | null>(null);
+  const [editCounts, setEditCounts] = useState<Record<string, string>>({});
+  const [editRack, setEditRack] = useState<number | null>(null);
+  const [editRemark, setEditRemark] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [rowMsg, setRowMsg] = useState<RowMsg | null>(null);
 
   const BY_KEY = "vhagar.restick.by";
   useEffect(() => { try { setBy(localStorage.getItem(BY_KEY) || ""); } catch { /* blocked */ } }, []);
@@ -156,6 +204,7 @@ export default function RestickScreen({
 
   const open = (code: string) => { setError(null); setQ(""); setDesigns([]); setFamily(null); loadStyle(code, false); };
   const closeStyle = () => { setStyle(null); setCounts({}); setSaved(null); setError(null); };
+  const refreshAll = () => { loadRecent(); loadGrid(); if (style) loadStyle(style.style_code, true); };
 
   const ticked = useMemo(
     () => (style?.sizes || []).filter((s) => (counts[s.sku] ?? "").trim() !== ""),
@@ -164,10 +213,16 @@ export default function RestickScreen({
   const pieces = ticked.reduce((n, s) => n + (Number(counts[s.sku]) || 0), 0);
   const badCount = ticked.some((s) => !/^\d{1,3}$/.test(counts[s.sku].trim()));
 
+  // POS writes need the PIN and a name; the IMS knows who is logged in
+  const posReady = () => {
+    if (source !== "pos") return true;
+    if (!pin) { setError("Open Admin and enter the PIN first."); return false; }
+    if (!by) { setError("Pick who is counting (top of the screen)."); return false; }
+    return true;
+  };
+
   async function save() {
-    if (!style || ticked.length === 0 || badCount) return;
-    if (source === "pos" && !pin) { setError("Open Admin and enter the PIN first."); return; }
-    if (source === "pos" && !by) { setError("Pick who is counting."); return; }
+    if (!style || ticked.length === 0 || badCount || !posReady()) return;
     const diffs = ticked
       .map((s) => ({ s, n: Number(counts[s.sku]) }))
       .filter(({ s, n }) => n !== s.qty)
@@ -214,8 +269,116 @@ export default function RestickScreen({
     }
   }
 
-  const printLink = (id: string, label: string, cls: string) => (
-    <a href={printBase + id} target={printInNewTab ? "_blank" : undefined} rel="noreferrer" className={cls}>
+  // ---- edit / void / delete a saved re-stick ----
+  async function startEdit(id: string) {
+    setRowMsg(null);
+    setBusyId(id);
+    try {
+      const r = await fetch(`/api/restick/${id}`, { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok) { setRowMsg({ id, tone: "err", text: d?.message || "Couldn't open it." }); return; }
+      setEditing(d);
+      setEditCounts(Object.fromEntries((d as RestickBatch).lines.map((l) => [l.sku, String(l.counted)])));
+      setEditRack(d.rack);
+      setEditRemark(d.remark || "");
+    } catch {
+      setRowMsg({ id, tone: "err", text: "No signal — try again." });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function saveEdit() {
+    if (!editing || !posReady()) return;
+    const changed = editing.lines.filter((l) => editCounts[l.sku] !== "" && Number(editCounts[l.sku]) !== l.counted);
+    if (editing.lines.some((l) => !/^\d{1,3}$/.test(editCounts[l.sku] ?? ""))) {
+      setRowMsg({ id: editing.id, tone: "err", text: "Every size needs a count from 0 to 999." });
+      return;
+    }
+    if (changed.length && !confirm(
+      `Change the count?\n\n${changed.map((l) => `${l.size}: ${l.counted} → ${editCounts[l.sku]}`).join("\n")}\n\n` +
+      "Stock moves by the difference. Extra pieces get new codes; fewer pieces retire the last codes."
+    )) return;
+    setBusyId(editing.id);
+    try {
+      const r = await fetch(`/api/restick/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rack: editRack, remark: editRemark,
+          lines: changed.map((l) => ({ sku: l.sku, counted: Number(editCounts[l.sku]) })),
+          pin, by,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setRowMsg({ id: editing.id, tone: "err", text: d.message || "Not saved. Try again." }); return; }
+      setRowMsg({ id: editing.id, tone: "ok", text: "Saved.", added: d.added || [], removed: d.removed || [] });
+      setEditing(null);
+      refreshAll();
+    } catch {
+      setRowMsg({ id: editing.id, tone: "err", text: "No signal — not saved. Try again." });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function voidOne(b: RestickBatchRow) {
+    if (!posReady()) return;
+    if (!confirm(
+      `Void the re-stick of ${b.name} (${b.sizes})?\n\n` +
+      "Stock goes back to what IMS had before, its codes retire and the old codes it replaced come back. " +
+      "It stays in this list, marked voided."
+    )) return;
+    setBusyId(b.id);
+    setRowMsg(null);
+    try {
+      const r = await fetch(`/api/restick/${b.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "void", pin, by }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setRowMsg({ id: b.id, tone: "err", text: d.message || "Not voided. Try again." }); return; }
+      setRowMsg({ id: b.id, tone: "ok", text: "Voided — stock and codes are back as before. Peel its stickers." });
+      if (editing?.id === b.id) setEditing(null);
+      refreshAll();
+    } catch {
+      setRowMsg({ id: b.id, tone: "err", text: "No signal — not voided. Try again." });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function deleteOne(b: RestickBatchRow) {
+    if (!posReady()) return;
+    if (!confirm(
+      `Delete the re-stick of ${b.name} (${b.sizes})?\n\n` +
+      (b.voided_at ? "It is already voided; this removes it from the list." :
+        "It is undone first (stock and codes back as before), then removed from the list.") +
+      " The stock history keeps a note of it."
+    )) return;
+    setBusyId(b.id);
+    setRowMsg(null);
+    try {
+      const r = await fetch(`/api/restick/${b.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin, by }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setRowMsg({ id: b.id, tone: "err", text: d.message || "Not deleted. Try again." }); return; }
+      if (editing?.id === b.id) setEditing(null);
+      refreshAll();
+    } catch {
+      setRowMsg({ id: b.id, tone: "err", text: "No signal — not deleted. Try again." });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const printLink = (id: string, label: string, cls: string, codes?: string[]) => (
+    <a href={printBase + id + (codes?.length ? `&codes=${encodeURIComponent(codes.join(","))}` : "")}
+       target={printInNewTab ? "_blank" : undefined} rel="noreferrer" className={cls}>
       {label}
     </a>
   );
@@ -225,18 +388,90 @@ export default function RestickScreen({
     <div className="max-w-2xl">
       <h3 className={`mb-2 text-xs font-semibold uppercase ${C.muted}`}>Recent re-sticks</h3>
       <ul className={`${C.card} ${C.divide}`}>
-        {shownRecent.map((b) => (
-          <li key={b.id} className="flex items-center gap-3 px-4 py-3 text-sm">
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-semibold">{b.name} <span className={`font-normal ${C.muted}`}>· {b.pcs} pcs</span></span>
-              <span className={`block text-xs ${C.muted}`}>
-                {b.at} · {b.created_by || "—"} · {b.source.toUpperCase()}{b.rack ? ` · Rack ${b.rack}` : ""}
-              </span>
-              <span className={`block text-xs ${C.muted}`}>{b.sizes}{b.remark ? ` · “${b.remark}”` : ""}</span>
-            </span>
-            {b.pcs > 0 && printLink(b.id, b.printed_at ? "Reprint" : "Print", `${b.printed_at ? C.ghost : C.primary} shrink-0 px-3 py-2 text-sm`)}
-          </li>
-        ))}
+        {shownRecent.map((b) => {
+          const voided = !!b.voided_at;
+          const busy = busyId === b.id;
+          const msg = rowMsg?.id === b.id ? rowMsg : null;
+          return (
+            <li key={b.id} className="space-y-2 px-4 py-3 text-sm">
+              <div className="flex items-start gap-3">
+                <span className={`min-w-0 flex-1 ${voided ? "opacity-60" : ""}`}>
+                  <span className={`block truncate font-semibold ${voided ? "line-through" : ""}`}>
+                    {b.name} <span className={`font-normal ${C.muted}`}>· {b.pcs} pcs</span>
+                  </span>
+                  <span className={`block text-xs ${C.muted}`}>
+                    {b.at} · {b.created_by || "—"} · {b.source.toUpperCase()}{b.rack ? ` · Rack ${b.rack}` : ""}
+                  </span>
+                  <span className={`block text-xs ${C.muted}`}>{b.sizes}{b.remark ? ` · “${b.remark}”` : ""}</span>
+                  {voided && <span className={`block text-xs font-semibold ${C.down}`}>Voided {b.voided_at}{b.voided_by ? ` by ${b.voided_by}` : ""}</span>}
+                </span>
+                {!voided && b.pcs > 0 && printLink(b.id, b.printed_at ? "Reprint" : "Print", `${b.printed_at ? C.ghost : C.primary} shrink-0 px-3 py-2 text-sm`)}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {!voided && (
+                  <button onClick={() => (editing?.id === b.id ? setEditing(null) : startEdit(b.id))} disabled={busy} className={C.action}>
+                    {editing?.id === b.id ? "Close edit" : "Edit"}
+                  </button>
+                )}
+                {!voided && <button onClick={() => voidOne(b)} disabled={busy} className={C.action}>Void</button>}
+                <button onClick={() => deleteOne(b)} disabled={busy} className={C.danger}>Delete</button>
+                {busy && <span className={`self-center text-xs ${C.muted}`}>Working…</span>}
+              </div>
+
+              {msg && (
+                <div className={msg.tone === "err" ? C.err : C.warn}>
+                  <p>{msg.text}</p>
+                  {msg.added && msg.added.length > 0 && (
+                    <p className="mt-1">
+                      {msg.added.length} new code{msg.added.length === 1 ? "" : "s"} —{" "}
+                      {printLink(b.id, "print just these", "font-semibold underline", msg.added)}
+                    </p>
+                  )}
+                  {msg.removed && msg.removed.length > 0 && (
+                    <p className="mt-1">Peel these stickers: <span className="font-mono">{msg.removed.join(", ")}</span></p>
+                  )}
+                </div>
+              )}
+
+              {editing?.id === b.id && (
+                <div className={`${C.panel} space-y-3`}>
+                  <ul className={C.divide}>
+                    {editing.lines.map((l) => {
+                      const v = editCounts[l.sku] ?? "";
+                      return (
+                        <li key={l.sku} className="flex items-center gap-3 py-2">
+                          <span className={`flex h-11 w-12 shrink-0 items-center justify-center rounded-lg font-bold ${C.sizeBox}`}>{l.size}</span>
+                          <span className="min-w-0 flex-1 text-xs">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className={C.muted}>counted</span> <b className="text-sm">{l.counted}</b>
+                              <DiffBadge was={l.counted} now={v === "" ? null : Number(v)} />
+                            </span>
+                            <span className={`block ${C.muted}`}>IMS had {l.ims_qty} before</span>
+                          </span>
+                          <Stepper value={v} label={l.size} onChange={(f) => setEditCounts((c) => ({ ...c, [l.sku]: f(c[l.sku] ?? "") }))} />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="flex flex-wrap gap-2">
+                    {[null, 1, 2, 3, 4, 5].map((r) => (
+                      <button key={r ?? 0} onClick={() => setEditRack(r)} className={`${C.chip} ${editRack === r ? C.chipOn : C.chipOff}`}>
+                        {r == null ? "No rack" : `Rack ${r}`}
+                      </button>
+                    ))}
+                  </div>
+                  <input value={editRemark} onChange={(e) => setEditRemark(e.target.value)} maxLength={200}
+                         placeholder="Remark (optional)" className={C.input} />
+                  <div className="flex gap-2">
+                    <button onClick={saveEdit} disabled={busy} className={`${C.primary} flex-1`}>{busy ? "Saving…" : "Save changes"}</button>
+                    <button onClick={() => setEditing(null)} className={`${C.ghost} flex-1`}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
       {recent.length > 5 && (
         <button onClick={() => setAllRecent((v) => !v)} className={`mt-2 text-sm font-semibold ${C.muted}`}>
@@ -304,7 +539,7 @@ export default function RestickScreen({
 
       {!style && q.trim().length < 2 && families.length > 0 && (
         <div className={C.card}>
-          <p className={`border-b px-4 py-2 text-sm font-semibold`}>
+          <p className="border-b px-4 py-2 text-sm font-semibold">
             Products <span className={`font-normal ${C.muted}`}>· tap a product for its designs</span>
           </p>
           <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 xl:grid-cols-5">
@@ -385,43 +620,34 @@ export default function RestickScreen({
               <h2 className="text-lg font-bold">{style.name}</h2>
               <p className={`font-mono text-xs ${C.muted}`}>{style.style_code}{style.color ? ` · ${style.color}` : ""}</p>
             </div>
-            <button onClick={closeStyle} className={`text-sm font-semibold ${C.muted}`}>Change</button>
+            <button onClick={closeStyle} className={`${C.ghost} px-3 py-1.5 text-sm`}>← Products</button>
           </div>
 
           <p className={`text-xs ${C.muted}`}>
-            Count every piece of a size — boxes and display included — and type the number. Sizes left empty are not touched.
+            Count every piece of a size — boxes and display included. Tap + once per piece, or type the number.
+            Sizes left at — are not touched.
           </p>
 
           <ul className={C.divide}>
             {style.sizes.map((s) => {
               const v = counts[s.sku] ?? "";
-              const n = v.trim() === "" ? null : Number(v);
               const boxed = s.boxes.reduce((a, b) => a + b.qty, 0);
               return (
                 <li key={s.sku} className="flex items-center gap-3 py-3">
-                  <span className={`w-12 shrink-0 rounded-lg py-2 text-center font-bold ${C.sizeBox}`}>{s.size}</span>
-                  <span className="min-w-0 flex-1 text-sm">
-                    <span className="block">IMS <b>{s.qty}</b>{s.last_at ? <span className={`ml-2 text-xs ${C.up}`}>✓ {s.last_at}</span> : null}</span>
-                    {boxed > 0 && (
-                      <span className={`block text-xs ${C.muted}`}>{s.boxes.map((b) => `${b.box} ${b.qty}`).join(" · ")}</span>
-                    )}
+                  <span className={`flex h-11 w-12 shrink-0 items-center justify-center rounded-lg font-bold ${C.sizeBox}`}>{s.size}</span>
+                  <div className="min-w-0 flex-1 text-sm">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className={C.muted}>IMS</span>
+                      <b className="text-base">{s.qty}</b>
+                      <DiffBadge was={s.qty} now={v === "" ? null : Number(v)} />
+                    </p>
+                    {s.last_at && <p className={`text-xs ${C.up}`}>✓ re-stuck {s.last_at}</p>}
+                    {boxed > 0 && <p className={`truncate text-xs ${C.muted}`}>{s.boxes.map((b) => `${b.box} ${b.qty}`).join(" · ")}</p>}
                     {s.last_at && s.codes !== s.qty && (
-                      <span className="block text-xs font-semibold text-amber-700">⚠ {s.codes} codes for {s.qty} pcs — re-stick again</span>
+                      <p className="text-xs font-semibold text-amber-700">⚠ {s.codes} codes for {s.qty} pcs — re-stick again</p>
                     )}
-                  </span>
-                  {n != null && Number.isFinite(n) && n !== s.qty && (
-                    <span className={`w-10 shrink-0 text-right text-sm font-bold ${n > s.qty ? C.up : C.down}`}>
-                      {n > s.qty ? "+" : ""}{n - s.qty}
-                    </span>
-                  )}
-                  <input
-                    value={v}
-                    onChange={(e) => setCounts((c) => ({ ...c, [s.sku]: e.target.value.replace(/[^\d]/g, "").slice(0, 3) }))}
-                    inputMode="numeric"
-                    placeholder="—"
-                    aria-label={`Counted ${s.size}`}
-                    className={`${C.input} w-20 shrink-0 text-center font-bold`}
-                  />
+                  </div>
+                  <Stepper value={v} label={s.size} onChange={(f) => setCounts((c) => ({ ...c, [s.sku]: f(c[s.sku] ?? "") }))} />
                 </li>
               );
             })}
@@ -432,7 +658,7 @@ export default function RestickScreen({
             <div className="flex flex-wrap gap-2">
               {[null, 1, 2, 3, 4, 5].map((r) => (
                 <button key={r ?? 0} onClick={() => setRack(r)} className={`${C.chip} ${rack === r ? C.chipOn : C.chipOff}`}>
-                  {r == null ? "—" : `Rack ${r}`}
+                  {r == null ? "No rack" : `Rack ${r}`}
                 </button>
               ))}
             </div>
@@ -443,7 +669,7 @@ export default function RestickScreen({
           </div>
 
           <button onClick={save} disabled={saving || loading || ticked.length === 0 || badCount} className={`${C.primary} w-full`}>
-            {saving ? "Saving…" : ticked.length === 0 ? "Type a count to start" : `Save ${pieces} piece${pieces === 1 ? "" : "s"} & make labels`}
+            {saving ? "Saving…" : ticked.length === 0 ? "Count a size to start" : `Save ${pieces} piece${pieces === 1 ? "" : "s"} & make labels`}
           </button>
 
           {saved && (

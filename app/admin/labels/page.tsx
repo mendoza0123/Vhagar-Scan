@@ -120,13 +120,17 @@ export default function LabelsPage() {
   }, []);
 
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("batch");
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("batch");
     if (!id) return;
+    // &codes=A,B — print only those (e.g. the new codes an edit added)
+    const only = new Set((params.get("codes") || "").split(",").map((c) => c.trim()).filter(Boolean));
     fetch(`/api/restick/${encodeURIComponent(id)}`, { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d?.message || "That re-stick batch wasn't found.");
         setBatch(d);
+        if (only.size) setSkip(new Set((d.codes || []).map((c: { code: string }) => c.code).filter((c: string) => !only.has(c))));
       })
       .catch((e) => setBatchErr(e.message || "No signal — couldn't load the batch."));
   }, []);
@@ -525,6 +529,7 @@ export default function LabelsPage() {
                   {batch.created_by || "—"}{batch.rack ? ` · Rack ${batch.rack}` : ""}{batch.remark ? ` · “${batch.remark}”` : ""}
                   {batch.printed_at ? " · printed before" : ""}
                 </p>
+                {batch.voided_at && <p className="text-xs font-semibold text-rose-700">This re-stick was voided — its codes are retired.</p>}
               </div>
               <a href="/admin/labels" className="text-sm font-medium text-brand">Exit</a>
             </div>

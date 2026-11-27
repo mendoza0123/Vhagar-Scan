@@ -40,7 +40,8 @@ export async function GET(
   try {
     const [o] = await sql`
       SELECT (SELECT status FROM ims_units WHERE unit_code = ${scanned}) AS unit_status,
-             EXISTS (SELECT 1 FROM ims_restick_lines WHERE variant_sku = ${sku}) AS restuck`;
+             EXISTS (SELECT 1 FROM ims_restick_lines l JOIN ims_restick r ON r.id = l.restick_id
+                      WHERE l.variant_sku = ${sku} AND r.voided_at IS NULL) AS restuck`;
     old_sticker = o.unit_status === "void" || (sku === scanned && o.restuck === true);
   } catch { /* not switched on yet */ }
   return NextResponse.json({ ...rows[0], unit_code: sku === scanned ? null : scanned, old_sticker });
